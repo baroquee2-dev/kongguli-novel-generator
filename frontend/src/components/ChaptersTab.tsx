@@ -213,6 +213,25 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
     } catch (e) {}
   };
 
+  // 劇情觀看時常駐側邊角色圖伴讀欄 (自動記憶於瀏覽器)
+  const [showSideCharacters, setShowSideCharacters] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('novel_weaver_show_side_characters');
+      if (saved !== null) return saved === 'true';
+    } catch (e) {}
+    return true; // 預設開啟，確保觀看劇情時角色圖在旁邊
+  });
+
+  const handleToggleSideCharacters = () => {
+    setShowSideCharacters((prev) => {
+      const nextVal = !prev;
+      try {
+        localStorage.setItem('novel_weaver_show_side_characters', String(nextVal));
+      } catch (e) {}
+      return nextVal;
+    });
+  };
+
   const [targetWords, setTargetWords] = useState<number>(2000);
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [continueInstruction, setContinueInstruction] = useState<string>('順著當前情節脈絡自然生動地繼續寫下去');
@@ -778,146 +797,6 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
               />
             </div>
 
-            {/* 本章登場角色陣容舞台 (Active Cast Gallery - 一字排開展示，增加沉浸感) */}
-            <div className="rounded-2xl border border-blue-500/25 bg-gradient-to-r from-blue-950/25 via-slate-900/60 to-purple-950/20 p-4 space-y-3 shadow-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-blue-500/15 text-blue-400">
-                    <Users className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                      <span>本章登場角色陣容 (Active Cast)</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono border border-blue-500/30">
-                        {selectedCharacters.length} 位在場
-                      </span>
-                      {(isGenerating || isContinuing) && (
-                        <span className="text-[10px] text-purple-300 font-mono flex items-center gap-1.5 animate-pulse">
-                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
-                          AI 正沉浸描寫本章人物中...
-                        </span>
-                      )}
-                    </h3>
-                    <p className="text-[11px] text-slate-400">
-                      登場角色立繪一字排開展示，外觀設定即時對照，提升寫作沉浸感
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {selectedCharacters.length === 0 ? (
-                <div className="py-6 px-4 text-center rounded-xl border border-dashed border-slate-800/80 bg-slate-950/40 flex items-center justify-center gap-3">
-                  <User className="w-5 h-5 text-slate-600 shrink-0" />
-                  <p className="text-xs text-slate-400">
-                    本章尚未勾選登場角色。請在上方勾選角色，立繪將一字排開在此展示。
-                  </p>
-                </div>
-              ) : (
-                <div className="flex gap-4 overflow-x-auto pb-2 pt-1 scrollbar-thin scrollbar-thumb-slate-700">
-                  {selectedCharacters.map((char) => {
-                    const isNowActing = isGenerating || isContinuing;
-                    return (
-                      <div
-                        key={char.id}
-                        className={`relative rounded-xl border overflow-hidden bg-slate-950/90 transition-all duration-300 group shrink-0 w-48 sm:w-52 flex flex-col ${
-                          isNowActing
-                            ? 'border-purple-500 ring-2 ring-purple-500/30 shadow-lg shadow-purple-900/30'
-                            : 'border-slate-800 hover:border-slate-600 hover:shadow-md'
-                        }`}
-                      >
-                        {/* 立繪圖片展示區 */}
-                        {char.avatar_url ? (
-                          <div className="relative aspect-[3/4] w-full overflow-hidden bg-slate-900 shrink-0">
-                            <img
-                              src={char.avatar_url}
-                              alt={char.name}
-                              className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105"
-                            />
-                            {/* 漸層遮罩 */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
-
-                            {/* 右上角快捷移出場景按鈕 */}
-                            <button
-                              type="button"
-                              title="從本章移出"
-                              onClick={() => toggleCharacter(char.id)}
-                              className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-950/70 hover:bg-rose-600/90 text-slate-300 hover:text-white backdrop-blur-sm transition border border-white/10 opacity-0 group-hover:opacity-100"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* 演出中動畫標籤 */}
-                            {isNowActing && (
-                              <div className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-500/50 backdrop-blur-xs">
-                                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
-                                <span className="text-[9px] text-purple-200 font-bold">登場中</span>
-                              </div>
-                            )}
-
-                            {/* 浮動在立繪底部的角色名稱與標籤 */}
-                            <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between">
-                              <div className="min-w-0 pr-1">
-                                <div className="text-sm font-bold text-white drop-shadow-md truncate">
-                                  {char.name}
-                                </div>
-                                <span className="text-[10px] text-blue-300 bg-blue-950/80 px-1.5 py-0.5 rounded border border-blue-800/50 backdrop-blur-xs inline-block mt-0.5 truncate">
-                                  {char.role || '角色'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="relative p-3.5 bg-gradient-to-b from-slate-900 to-slate-950 border-b border-slate-800/60 shrink-0">
-                            <button
-                              type="button"
-                              title="從本章移出"
-                              onClick={() => toggleCharacter(char.id)}
-                              className="absolute top-2.5 right-2.5 p-1 rounded-full bg-slate-800/60 hover:bg-rose-600 text-slate-400 hover:text-white transition"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-10 h-10 rounded-xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
-                                <User className="w-5 h-5" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="text-xs font-bold text-slate-200 truncate">{char.name}</div>
-                                {isNowActing && (
-                                  <span className="text-[9px] text-purple-400 font-mono animate-pulse block">登場中</span>
-                                )}
-                                <span className="text-[10px] text-blue-400 block truncate">{char.role || '角色'} (無立繪)</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* 角色外觀與特徵備忘卡 (供作者寫作隨時參考) */}
-                        <div className="p-3 space-y-1.5 bg-slate-950 text-xs flex-1 flex flex-col justify-between">
-                          {char.appearance ? (
-                            <div className="space-y-0.5">
-                              <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider block">外貌服飾</span>
-                              <p className="text-[11px] text-slate-300 leading-snug line-clamp-3 hover:line-clamp-none transition-all cursor-default" title={char.appearance}>
-                                {char.appearance}
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="text-[10px] text-slate-600 italic">未填寫外貌描寫</p>
-                          )}
-                          {char.profile && (
-                            <div className="space-y-0.5 pt-1.5 border-t border-slate-900">
-                              <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider block">性格身世</span>
-                              <p className="text-[10px] text-slate-400 leading-snug line-clamp-2" title={char.profile}>
-                                {char.profile}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
 
             {/* 故事正文創作區 (全幅最大化排版) */}
             <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4 shadow-lg">
@@ -976,6 +855,24 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                         <option value={22} className="bg-slate-900 text-slate-200">字級：22px (護眼巨字)</option>
                       </select>
                     </div>
+
+                    {/* 側邊角色伴讀立繪欄開關 */}
+                    <button
+                      type="button"
+                      onClick={handleToggleSideCharacters}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition ${
+                        showSideCharacters
+                          ? 'bg-blue-600/25 border-blue-500/50 text-blue-200 shadow-xs'
+                          : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-300'
+                      }`}
+                      title="觀看劇情時在右側常駐顯示本章登場角色圖"
+                    >
+                      <Users className="w-3.5 h-3.5 text-blue-400" />
+                      <span>側邊角色圖</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">
+                        {selectedCharacters.length}
+                      </span>
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -1125,120 +1022,274 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                   </div>
                 )}
 
-                {/* 編輯器主體：SillyTavern 沉浸式高亮視窗 vs 原始文字框 */}
-                {editorMode === 'sillytavern' ? (
-                  <div
-                    onDoubleClick={() => setEditorMode('raw')}
-                    title="雙擊此處切換至純文字編輯框"
-                    className={`w-full min-h-[480px] max-h-[750px] overflow-y-auto p-5 bg-slate-950 rounded-xl leading-relaxed transition ${
-                      isGenerating || isContinuing
-                        ? 'border border-purple-500/80 ring-2 ring-purple-500/20 shadow-lg shadow-purple-500/10'
-                        : 'border border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    {currentChapter.content?.trim() ? (
-                      <div className="space-y-3 font-sans select-text">
-                        {currentChapter.content.split('\n').map((para, pIdx) => {
-                          if (!para.trim()) {
-                            return <div key={pIdx} className="h-2.5" />;
-                          }
-                          const tokens = parseSillyTavernParagraph(para);
-                          return (
-                            <p
-                              key={pIdx}
-                              className="text-slate-200 tracking-wide"
-                              style={{ fontSize: `${contentFontSize}px`, lineHeight: 1.85 }}
-                            >
-                              {tokens.map((token, tIdx) => {
-                                if (token.type === 'dialogue') {
-                                  return (
-                                    <span key={tIdx} className="text-amber-300 font-semibold drop-shadow-xs">
-                                      {token.text}
-                                    </span>
-                                  );
-                                }
-                                if (token.type === 'asterisk') {
-                                  return (
-                                    <span key={tIdx} className="text-purple-300/95 italic bg-purple-950/30 px-1 py-0.5 rounded mx-0.5 font-sans border border-purple-500/20">
-                                      {token.text}
-                                    </span>
-                                  );
-                                }
-                                if (token.type === 'bold') {
-                                  return (
-                                    <strong key={tIdx} className="text-white font-bold">
-                                      {token.text}
-                                    </strong>
-                                  );
-                                }
-                                return <span key={tIdx}>{token.text}</span>;
-                              })}
+                {/* 正文主體與側邊常駐伴讀立繪欄 (劇情觀看時角色圖在旁) */}
+                <div className="flex flex-col lg:flex-row gap-5 items-start">
+                  {/* 左側：故事閱讀/編輯區與續寫工具列 */}
+                  <div className="flex-1 min-w-0 w-full space-y-4">
+                    {/* 編輯器主體：SillyTavern 沉浸式高亮視窗 vs 原始文字框 */}
+                    {editorMode === 'sillytavern' ? (
+                      <div
+                        onDoubleClick={() => setEditorMode('raw')}
+                        title="雙擊此處切換至純文字編輯框"
+                        className={`w-full min-h-[500px] max-h-[760px] overflow-y-auto p-5 bg-slate-950 rounded-xl leading-relaxed transition ${
+                          isGenerating || isContinuing
+                            ? 'border border-purple-500/80 ring-2 ring-purple-500/20 shadow-lg shadow-purple-500/10'
+                            : 'border border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {currentChapter.content?.trim() ? (
+                          <div className="space-y-3 font-sans select-text">
+                            {currentChapter.content.split('\n').map((para, pIdx) => {
+                              if (!para.trim()) {
+                                return <div key={pIdx} className="h-2.5" />;
+                              }
+                              const tokens = parseSillyTavernParagraph(para);
+                              return (
+                                <p
+                                  key={pIdx}
+                                  className="text-slate-200 tracking-wide"
+                                  style={{ fontSize: `${contentFontSize}px`, lineHeight: 1.85 }}
+                                >
+                                  {tokens.map((token, tIdx) => {
+                                    if (token.type === 'dialogue') {
+                                      return (
+                                        <span key={tIdx} className="text-amber-300 font-semibold drop-shadow-xs">
+                                          {token.text}
+                                        </span>
+                                      );
+                                    }
+                                    if (token.type === 'asterisk') {
+                                      return (
+                                        <span key={tIdx} className="text-purple-300/95 italic bg-purple-950/30 px-1 py-0.5 rounded mx-0.5 font-sans border border-purple-500/20">
+                                          {token.text}
+                                        </span>
+                                      );
+                                    }
+                                    if (token.type === 'bold') {
+                                      return (
+                                        <strong key={tIdx} className="text-white font-bold">
+                                          {token.text}
+                                        </strong>
+                                      );
+                                    }
+                                    return <span key={tIdx}>{token.text}</span>;
+                                  })}
+                                </p>
+                              );
+                            })}
+                            {(isGenerating || isContinuing) && (
+                              <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-0.5 align-middle" />
+                            )}
+                            <div ref={previewEndRef} />
+                          </div>
+                        ) : (
+                          <div className="py-20 text-center text-slate-500 space-y-2 select-none">
+                            <BookOpen className="w-8 h-8 text-slate-600 mx-auto" />
+                            <p className="text-xs text-slate-400">當前章節尚無故事正文</p>
+                            <p className="text-[11px] text-slate-600 max-w-sm mx-auto">
+                              點選上方「✨ 串流生成完整章節」開始創作，或切換至「✏️ 純文字編輯」直接鍵入。
                             </p>
-                          );
-                        })}
-                        {(isGenerating || isContinuing) && (
-                          <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-0.5 align-middle" />
+                          </div>
                         )}
-                        <div ref={previewEndRef} />
                       </div>
                     ) : (
-                      <div className="py-20 text-center text-slate-500 space-y-2 select-none">
-                        <BookOpen className="w-8 h-8 text-slate-600 mx-auto" />
-                        <p className="text-xs text-slate-400">當前章節尚無故事正文</p>
-                        <p className="text-[11px] text-slate-600 max-w-sm mx-auto">
-                          點選上方「✨ 串流生成完整章節」開始創作，或切換至「✏️ 純文字編輯」直接鍵入。
-                        </p>
-                      </div>
+                      <textarea
+                        rows={22}
+                        value={currentChapter.content}
+                        onChange={(e) => handleUpdateChapter({ content: e.target.value })}
+                        placeholder="在此手動撰寫故事正文，或點擊上方「串流生成完整章節」由 AI 一邊思考一邊打字..."
+                        style={{ fontSize: `${contentFontSize}px`, lineHeight: 1.85 }}
+                        className={`w-full min-h-[500px] max-h-[760px] p-4 bg-slate-950 rounded-xl text-slate-100 leading-relaxed font-sans focus:outline-none transition resize-y ${
+                          isGenerating || isContinuing
+                            ? 'border border-purple-500/80 ring-2 ring-purple-500/20 shadow-lg shadow-purple-500/10'
+                            : 'border border-slate-800 focus:border-pink-500'
+                        }`}
+                      />
                     )}
-                  </div>
-                ) : (
-                  <textarea
-                    rows={22}
-                    value={currentChapter.content}
-                    onChange={(e) => handleUpdateChapter({ content: e.target.value })}
-                    placeholder="在此手動撰寫故事正文，或點擊上方「串流生成完整章節」由 AI 一邊思考一邊打字..."
-                    style={{ fontSize: `${contentFontSize}px`, lineHeight: 1.85 }}
-                    className={`w-full p-4 bg-slate-950 rounded-xl text-slate-100 leading-relaxed font-sans focus:outline-none transition resize-y ${
-                      isGenerating || isContinuing
-                        ? 'border border-purple-500/80 ring-2 ring-purple-500/20 shadow-lg shadow-purple-500/10'
-                        : 'border border-slate-800 focus:border-pink-500'
-                    }`}
-                  />
-                )}
 
-                {/* 續寫工具列 */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
-                  <div className="flex items-center gap-2 w-full sm:w-auto flex-1">
-                    <CornerDownLeft className="w-4 h-4 text-slate-500 shrink-0" />
-                    <input
-                      type="text"
-                      disabled={isGenerating || isContinuing}
-                      value={continueInstruction}
-                      onChange={(e) => setContinueInstruction(e.target.value)}
-                      placeholder="續寫指示 (如：緊接著描寫男主角的心理震撼)"
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                    />
+                    {/* 續寫工具列 */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
+                      <div className="flex items-center gap-2 w-full sm:w-auto flex-1">
+                        <CornerDownLeft className="w-4 h-4 text-slate-500 shrink-0" />
+                        <input
+                          type="text"
+                          disabled={isGenerating || isContinuing}
+                          value={continueInstruction}
+                          onChange={(e) => setContinueInstruction(e.target.value)}
+                          placeholder="續寫指示 (如：緊接著描寫男主角的心理震撼)"
+                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                        />
+                      </div>
+
+                      {isContinuing ? (
+                        <button
+                          type="button"
+                          onClick={handleStopGeneration}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition animate-pulse shrink-0"
+                        >
+                          <StopCircle className="w-3.5 h-3.5" />
+                          <span>停止續寫</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleContinueWriting}
+                          disabled={isGenerating || !currentChapter.content.trim()}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 text-xs font-medium transition disabled:opacity-40 shrink-0"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                          <span>順著情節續寫</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  {isContinuing ? (
-                    <button
-                      type="button"
-                      onClick={handleStopGeneration}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition animate-pulse shrink-0"
-                    >
-                      <StopCircle className="w-3.5 h-3.5" />
-                      <span>停止續寫</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleContinueWriting}
-                      disabled={isGenerating || !currentChapter.content.trim()}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 text-xs font-medium transition disabled:opacity-40 shrink-0"
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      <span>順著情節續寫</span>
-                    </button>
+                  {/* 右側：側邊常駐伴讀角色立繪欄 (Sticky 隨畫面滾動常駐在側) */}
+                  {showSideCharacters && (
+                    <div className="w-full lg:w-64 xl:w-72 2xl:w-80 shrink-0 lg:sticky lg:top-4 space-y-3">
+                      {/* 標題列 */}
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                          <Users className="w-4 h-4 text-blue-400" />
+                          <span>登場在場角色</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono border border-blue-500/30">
+                            {selectedCharacters.length} 位
+                          </span>
+                        </div>
+                        {(isGenerating || isContinuing) && (
+                          <span className="text-[10px] text-purple-300 font-mono flex items-center gap-1 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+                            AI 描寫中
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 角色卡片列表 */}
+                      <div className="max-h-[760px] overflow-y-auto pr-1 space-y-3 scrollbar-thin scrollbar-thumb-slate-700">
+                        {selectedCharacters.length === 0 ? (
+                          <div className="p-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/60 text-center space-y-2">
+                            <User className="w-6 h-6 text-slate-600 mx-auto" />
+                            <p className="text-xs text-slate-400">本章尚未勾選在場角色</p>
+                            <p className="text-[11px] text-slate-500">在上方勾選或點擊下方人物，立繪即在此常駐伴讀：</p>
+                            {novel.characters.length > 0 && (
+                              <div className="pt-2 flex flex-wrap gap-1.5 justify-center">
+                                {novel.characters.slice(0, 4).map((c) => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() => toggleCharacter(c.id)}
+                                    className="text-[11px] px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-blue-600/30 text-slate-300 hover:text-blue-200 border border-slate-700 transition"
+                                  >
+                                    + {c.name}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          selectedCharacters.map((char) => {
+                            const isNowActing = isGenerating || isContinuing;
+                            return (
+                              <div
+                                key={char.id}
+                                className={`relative rounded-xl border overflow-hidden bg-slate-950/95 transition-all duration-300 group shadow-md ${
+                                  isNowActing
+                                    ? 'border-purple-500 ring-2 ring-purple-500/40 shadow-lg shadow-purple-900/30'
+                                    : 'border-slate-800 hover:border-slate-600'
+                                }`}
+                              >
+                                {/* 立繪圖片展示區 */}
+                                {char.avatar_url ? (
+                                  <div className="relative aspect-[3/4] w-full overflow-hidden bg-slate-900">
+                                    <img
+                                      src={char.avatar_url}
+                                      alt={char.name}
+                                      className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+
+                                    {/* 右上角快捷移出場景按鈕 */}
+                                    <button
+                                      type="button"
+                                      title="從本章移出"
+                                      onClick={() => toggleCharacter(char.id)}
+                                      className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-950/70 hover:bg-rose-600/90 text-slate-300 hover:text-white backdrop-blur-sm transition border border-white/10 opacity-0 group-hover:opacity-100"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {/* 演出中動畫標籤 */}
+                                    {isNowActing && (
+                                      <div className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-500/50 backdrop-blur-xs shadow">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+                                        <span className="text-[9px] text-purple-200 font-bold">演出中</span>
+                                      </div>
+                                    )}
+
+                                    {/* 角色名稱與定位 */}
+                                    <div className="absolute bottom-2 left-2.5 right-2.5 flex items-end justify-between">
+                                      <div className="min-w-0 pr-1">
+                                        <div className="text-sm font-bold text-white drop-shadow-md truncate">
+                                          {char.name}
+                                        </div>
+                                        <span className="text-[10px] text-blue-300 bg-blue-950/80 px-1.5 py-0.5 rounded border border-blue-800/50 backdrop-blur-xs inline-block mt-0.5 truncate">
+                                          {char.role || '角色'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="relative p-3 bg-gradient-to-b from-slate-900 to-slate-950 border-b border-slate-800/60">
+                                    <button
+                                      type="button"
+                                      title="從本章移出"
+                                      onClick={() => toggleCharacter(char.id)}
+                                      className="absolute top-2 right-2 p-1 rounded-full bg-slate-800/60 hover:bg-rose-600 text-slate-400 hover:text-white transition"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                    <div className="flex items-center gap-2.5">
+                                      <div className="w-10 h-10 rounded-xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                                        <User className="w-5 h-5" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="text-xs font-bold text-slate-200 truncate">{char.name}</div>
+                                        {isNowActing && (
+                                          <span className="text-[9px] text-purple-400 font-mono animate-pulse block">演出中</span>
+                                        )}
+                                        <span className="text-[10px] text-blue-400 block truncate">{char.role || '角色'} (無立繪)</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* 角色外貌服飾與性格備忘卡 */}
+                                {(char.appearance || char.profile) && (
+                                  <div className="p-3 space-y-1.5 bg-slate-950 text-xs">
+                                    {char.appearance && (
+                                      <div className="space-y-0.5">
+                                        <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider block">外貌服飾</span>
+                                        <p className="text-[11px] text-slate-300 leading-snug line-clamp-3 hover:line-clamp-none transition-all cursor-default" title={char.appearance}>
+                                          {char.appearance}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {char.profile && (
+                                      <div className="space-y-0.5 pt-1 border-t border-slate-900">
+                                        <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider block">性格身世</span>
+                                        <p className="text-[10px] text-slate-400 leading-snug line-clamp-2" title={char.profile}>
+                                          {char.profile}
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 
