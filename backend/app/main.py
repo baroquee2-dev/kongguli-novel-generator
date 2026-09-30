@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import urllib.parse
 from pathlib import Path
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -137,7 +138,11 @@ async def api_export_novel(novel_id: str):
         lines.append("\n")
     
     content = "\n".join(lines)
-    return PlainTextResponse(content, headers={"Content-Disposition": f'attachment; filename="{n.title}.md"'})
+    encoded_filename = urllib.parse.quote(f"{n.title}.md")
+    return PlainTextResponse(
+        content,
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}; filename=\"export.md\""}
+    )
 
 # ==================== 3. 圖片上傳 API ====================
 @app.post("/api/upload-avatar")

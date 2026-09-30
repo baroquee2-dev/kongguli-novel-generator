@@ -124,7 +124,7 @@ class AIService:
             headers["Authorization"] = f"Bearer {cfg.api_key}"
         if provider == "openrouter" or "openrouter.ai" in base_url:
             headers["HTTP-Referer"] = "http://localhost:5173"
-            headers["X-Title"] = "KongGuLi-孔固力自動小說生成器"
+            headers["X-Title"] = "KongGuLi Novel Generator"
 
         model = cfg.model.strip()
         if not model:
@@ -339,7 +339,7 @@ class AIService:
             headers["Authorization"] = f"Bearer {cfg.api_key}"
         if provider == "openrouter" or "openrouter.ai" in base_url:
             headers["HTTP-Referer"] = "http://localhost:5173"
-            headers["X-Title"] = "KongGuLi-孔固力自動小說生成器"
+            headers["X-Title"] = "KongGuLi Novel Generator"
 
         model = cfg.model.strip()
         if not model:
@@ -606,7 +606,7 @@ class AIService:
         endpoint = "https://openrouter.ai/api/v1/models"
         headers = {
             "HTTP-Referer": "http://localhost:5173",
-            "X-Title": "KongGuLi-孔固力自動小說生成器"
+            "X-Title": "KongGuLi Novel Generator"
         }
         if cfg.api_key:
             headers["Authorization"] = f"Bearer {cfg.api_key}"
