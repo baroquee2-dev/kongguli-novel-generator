@@ -388,7 +388,6 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
             content: fullText,
             word_count: fullText.replace(/\s+/g, '').length
           });
-          previewEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         },
         controller.signal
       );
@@ -448,7 +447,6 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
             content: fullText,
             word_count: fullText.replace(/\s+/g, '').length
           });
-          previewEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         },
         controller.signal
       );
