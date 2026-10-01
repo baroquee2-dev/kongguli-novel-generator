@@ -1,5 +1,5 @@
 @echo off
-title KongGuLi-孔固力自動小說生成器 Launcher
+title KongGuLi Novel Generator Launcher
 
 cd /d "%~dp0"
 
@@ -26,7 +26,7 @@ start http://localhost:5173
 
 echo.
 echo ========================================================
-echo   KongGuLi-孔固力自動小說生成器 is running!
+echo   KongGuLi Novel Generator is running!
 echo   Frontend : http://localhost:5173
 echo   Backend  : http://127.0.0.1:8000/docs
 echo ========================================================
