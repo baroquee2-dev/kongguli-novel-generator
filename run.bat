@@ -12,7 +12,7 @@ if not exist "%~dp0.venv\Scripts\python.exe" (
 )
 
 echo [2/3] Starting backend FastAPI service...
-start "KongGuLi-Backend" /min "%~dp0.venv\Scripts\python.exe" -m uvicorn app.main:app --app-dir "%~dp0backend" --host 127.0.0.1 --port 8000 --reload
+start "KongGuLi-Backend" /min cmd /c ""%~dp0.venv\Scripts\python.exe" -m uvicorn app.main:app --app-dir "%~dp0backend" --host 127.0.0.1 --port 8000 --reload"
 
 echo [3/3] Starting frontend Vite interface...
 start "KongGuLi-Frontend" /min cmd /c "cd /d "%~dp0frontend" && npm run dev"
