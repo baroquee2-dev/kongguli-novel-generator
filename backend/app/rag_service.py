@@ -28,9 +28,14 @@ def init_rag_db():
             text TEXT NOT NULL,
             characters TEXT NOT NULL,
             vector BLOB,
+            vector_model TEXT,
             created_at TEXT NOT NULL
         );
         """)
+        try:
+            cursor.execute("ALTER TABLE chunks ADD COLUMN vector_model TEXT;")
+        except Exception:
+            pass
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_novel_chap ON chunks (novel_id, chapter_number);")
         conn.commit()
 
@@ -232,6 +237,27 @@ class RAGService:
         return [None] * len(texts)
 
     @staticmethod
+    def get_embedding_provider_tag(settings: AISettings) -> str:
+        """獲取當前生效的向量模型標籤，用於偵測跨模型切換"""
+        provider = settings.provider
+        cfg = settings.providers.get(provider) if settings.providers else None
+        api_key = cfg.api_key if cfg and cfg.api_key else settings.api_key
+        base_url = cfg.base_url if cfg and cfg.base_url else settings.base_url
+
+        if provider == "openai" and api_key:
+            return "openai:text-embedding-3-small"
+        elif provider == "openrouter" and api_key:
+            return "openrouter:openai/text-embedding-3-small"
+        elif provider == "gemini" and api_key:
+            return "gemini:text-embedding-004"
+        elif base_url and ("/v1" in base_url or "localhost" in base_url or "127.0.0.1" in base_url):
+            return "custom:embeddings"
+        gemini_cfg = settings.providers.get("gemini") if settings.providers else None
+        if gemini_cfg and gemini_cfg.api_key and provider != "gemini":
+            return "aux-gemini:text-embedding-004"
+        return "local:bm25"
+
+    @staticmethod
     async def index_chapter(novel_id: str, chapter: Chapter, characters: List[str]):
         """
         為單個章節建立/更新語意向量索引
@@ -255,7 +281,7 @@ class RAGService:
         
         # 批量獲取向量
         vectors = await RAGService.get_embeddings(chunk_texts, settings)
-
+        active_tag = RAGService.get_embedding_provider_tag(settings)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         with sqlite3.connect(RAG_DB_FILE) as conn:
@@ -269,12 +295,12 @@ class RAGService:
                 cursor.execute("""
                 INSERT INTO chunks (
                     id, novel_id, chapter_id, chapter_number, chapter_title,
-                    chunk_index, text, characters, vector, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    chunk_index, text, characters, vector, vector_model, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     chunk_id, novel_id, chapter.id, chapter.chapter_number, chapter.title,
                     c["chunk_index"], c["text"], json.dumps(c["characters"], ensure_ascii=False),
-                    vec_blob, now_str
+                    vec_blob, active_tag, now_str
                 ))
             conn.commit()
 
@@ -327,7 +353,7 @@ class RAGService:
         with sqlite3.connect(RAG_DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-            SELECT id, chapter_number, chapter_title, chunk_index, text, characters, vector
+            SELECT id, chapter_number, chapter_title, chunk_index, text, characters, vector, vector_model
             FROM chunks
             WHERE novel_id = ? AND chapter_number < ?
             ORDER BY chapter_number ASC, chunk_index ASC
@@ -339,8 +365,23 @@ class RAGService:
 
         # 取得 Query 向量 (如有)
         settings = get_settings()
+        current_tag = RAGService.get_embedding_provider_tag(settings)
         query_vecs = await RAGService.get_embeddings([query_text], settings)
         query_vec = query_vecs[0] if query_vecs and query_vecs[0] is not None else None
+
+        # 智慧自癒檢測：若偵測到歷史切塊的向量模型與當前設定不一致，自動在背景排程重構全書索引以統一度量衡
+        has_model_mismatch = False
+        if query_vec is not None:
+            for row in rows:
+                v_blob, v_model = row[6], row[7]
+                if v_blob is not None and v_model and v_model != current_tag:
+                    has_model_mismatch = True
+                    break
+
+        if has_model_mismatch:
+            import asyncio
+            print(f"[RAG] 偵測到歷史切塊與當前向量模型不一致 ({current_tag})，已自動在背景啟動全書自癒重構！")
+            asyncio.create_task(RAGService.index_novel(novel))
 
         scored_candidates = []
 
@@ -348,23 +389,25 @@ class RAGService:
         query_char_set = set(selected_chars)
 
         for row in rows:
-            chk_id, ch_num, ch_title, chk_idx, text, chars_json, vec_blob = row
+            chk_id, ch_num, ch_title, chk_idx, text, chars_json, vec_blob, vec_model = row
             chk_chars = json.loads(chars_json) if chars_json else []
 
             score = 0.0
             reasons = []
 
-            # 1. 向量相似度評分 (如存在)
+            # 1. 向量相似度評分 (模型來源相同且維度相符才比對，杜絕蘋果比橘子)
             if query_vec is not None and vec_blob is not None:
-                stored_vec = np.frombuffer(vec_blob, dtype=np.float32)
-                if stored_vec.shape == query_vec.shape:
-                    norm_q = np.linalg.norm(query_vec)
-                    norm_s = np.linalg.norm(stored_vec)
-                    if norm_q > 1e-6 and norm_s > 1e-6:
-                        sim = float(np.dot(query_vec, stored_vec) / (norm_q * norm_s))
-                        score += sim * 0.75
-                        if sim > 0.45:
-                            reasons.append(f"語意關聯度高達 {int(sim * 100)}%")
+                # 只有當向量模型一致時才進行餘弦計算，防範不同廠商維度/空間衝突
+                if not vec_model or vec_model == current_tag:
+                    stored_vec = np.frombuffer(vec_blob, dtype=np.float32)
+                    if stored_vec.shape == query_vec.shape:
+                        norm_q = np.linalg.norm(query_vec)
+                        norm_s = np.linalg.norm(stored_vec)
+                        if norm_q > 1e-6 and norm_s > 1e-6:
+                            sim = float(np.dot(query_vec, stored_vec) / (norm_q * norm_s))
+                            score += sim * 0.75
+                            if sim > 0.45:
+                                reasons.append(f"語意關聯度高達 {int(sim * 100)}%")
 
             # 2. 登場角色共現加成 (同一群人物之間的對話/羈絆優先打撈)
             common_chars = query_char_set.intersection(set(chk_chars))
