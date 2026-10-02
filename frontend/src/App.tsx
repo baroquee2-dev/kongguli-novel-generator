@@ -227,7 +227,7 @@ export const App: React.FC = () => {
         settings={settings}
       />
 
-      {/* 四層結構導覽標籤列 */}
+      {/* 五層結構導覽標籤列 */}
       <div className="bg-slate-900/60 border-b border-slate-800 px-6 py-2 sticky top-16 z-30 backdrop-blur-md">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <nav className="flex items-center gap-1 sm:gap-2">
@@ -237,11 +237,11 @@ export const App: React.FC = () => {
               { id: 'characters', label: '第 3 層：角色陣容', icon: Users, color: 'text-blue-400' },
               { 
                 id: 'lorebook', 
-                label: `第 5 層：記憶伏筆庫${currentNovel?.lore_items && currentNovel.lore_items.length > 0 ? ` (${currentNovel.lore_items.length})` : ''}`, 
+                label: `第 4 層：記憶伏筆庫${currentNovel?.lore_items && currentNovel.lore_items.length > 0 ? ` (${currentNovel.lore_items.length})` : ''}`, 
                 icon: Brain, 
                 color: 'text-cyan-400' 
               },
-              { id: 'chapters', label: '第 4 層：章節創作', icon: BookOpenCheck, color: 'text-pink-400' },
+              { id: 'chapters', label: '第 5 層：章節創作', icon: BookOpenCheck, color: 'text-pink-400' },
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;

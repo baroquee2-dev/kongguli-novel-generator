@@ -61,7 +61,7 @@ def delete_novel(novel_id: str) -> bool:
     return False
 
 def create_sample_novel() -> Novel:
-    """初始化一個示範範例，展示 4 層式結構"""
+    """初始化一個示範範例，展示 5 層式立體創作架構"""
     novel_id = str(uuid.uuid4())[:8]
     novel = Novel(
         id=novel_id,

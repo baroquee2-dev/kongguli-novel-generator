@@ -220,13 +220,15 @@ export const LorebookTab: React.FC<Props> = ({ novel, onChange }) => {
               <Brain className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                世界書與伏筆記憶庫 (Lorebook)
-                <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
-                  長時記憶第 2 階段
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  第 4 層
                 </span>
-              </h2>
-              <p className="text-xs text-slate-400">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  世界書與伏筆記憶庫 (Lorebook)
+                </h2>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
                 建立關鍵物品、秘密誓約、勢力與特殊設定卡片。支援關鍵字自動掃描觸發與常駐注入，防止長篇創作吃書與遺忘。
               </p>
             </div>

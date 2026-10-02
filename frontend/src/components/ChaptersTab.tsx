@@ -575,12 +575,12 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30">
-              第 4 層
+              第 5 層
             </span>
             <h1 className="text-xl font-bold text-slate-100">章節創作與故事正文</h1>
           </div>
           <p className="text-xs text-slate-400">
-            自動融合「小說主線架構 + 勾選的登場人物 + 發生地點場景 + 前章脈絡」，由 AI 一鍵生成精彩流暢的小說正文。
+            自動融合「小說主線架構 + 登場人物 + 發生地點 + 世界書伏筆記憶 + 前情時間線」，由 AI 一鍵生成精彩流暢的小說正文。
           </p>
         </div>
 
