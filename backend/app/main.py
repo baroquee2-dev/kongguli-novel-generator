@@ -10,10 +10,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.models import (
-    AISettings, Novel, Location, Character, Chapter,
+    AISettings, Novel, Location, Character, Chapter, LoreItem,
     GenerateOutlineRequest, GenerateLocationsRequest,
     GenerateCharactersRequest, GenerateChapterRequest,
-    ContinueWritingRequest, GenerateChapterSummaryRequest
+    ContinueWritingRequest, GenerateChapterSummaryRequest,
+    AnalyzeLoreItemsRequest
 )
 from app.config import get_settings, save_settings, UPLOADS_DIR
 from app.db import (
@@ -348,14 +349,9 @@ async def api_ai_generate_chapter(req: GenerateChapterRequest):
     else:
         locs_text = "（由 AI 依劇情流動自由發揮所屬場景）"
 
-    # 提取前一章摘要或結尾，確保前後呼應
-    previous_context = ""
-    sorted_chaps = sorted(novel.chapters, key=lambda c: c.chapter_number)
-    curr_idx = next((i for i, c in enumerate(sorted_chaps) if c.id == chapter.id), 0)
-    if curr_idx > 0:
-        prev_chap = sorted_chaps[curr_idx - 1]
-        prev_summary = prev_chap.summary or (prev_chap.content[-300:] if len(prev_chap.content) > 300 else prev_chap.content)
-        previous_context = f"【上一章（第{prev_chap.chapter_number}章 《{prev_chap.title}》）情節回顧/結尾】：\n{prev_summary}\n"
+    # 長時記憶：全書前情時間線 + 直前章節銜接 + 世界書伏筆記憶庫
+    timeline_text, immediate_context = build_timeline_context(novel, chapter.id)
+    lore_text, _ = build_lorebook_context(novel, chapter, req.custom_instruction)
 
     target_words = req.target_words or 2000
     global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
@@ -377,8 +373,7 @@ async def api_ai_generate_chapter(req: GenerateChapterRequest):
 核心世界觀：{novel.world_background}
 主要劇情主線：{novel.main_plot}
 
-{previous_context}
-【當前章節資訊】
+{timeline_text}{lore_text}{immediate_context}【當前章節創作任務】
 章節標題：{chapter.title} (第 {chapter.chapter_number} 章)
 本章核心大綱與目標事件：
 {chapter.outline or "請根據主線推進引人入勝的關鍵事件與衝突"}
@@ -426,10 +421,14 @@ async def api_ai_continue_writing(req: ContinueWritingRequest):
 
 """
 
+    timeline_text, _ = build_timeline_context(novel, req.chapter_id)
+    lore_text, _ = build_lorebook_context(novel, chapter, req.instruction, prev_text) if chapter else ("", [])
+
     user_prompt = f"""{style_header}小說名稱：《{novel.title}》
 風格基調：{novel.tone}
 章節標題：{chapter.title if chapter else "未命名"}
-【當前已有正文的結尾部分】：
+
+{timeline_text}{lore_text}【當前已有正文的結尾部分】：
 ...
 {prev_text}
 
@@ -506,6 +505,76 @@ def build_timeline_context(novel: Novel, current_chapter_id: str) -> tuple[str, 
     return (timeline_text, immediate_context)
 
 
+def build_lorebook_context(novel: Novel, chapter: Chapter, custom_instruction: str = "", current_tail: str = "") -> tuple[str, list[dict]]:
+    """
+    第二階段長時記憶：世界書與關鍵伏筆 (Lorebook) 智慧關鍵字掃描與常駐激活機制
+    """
+    if not hasattr(novel, 'lore_items') or not novel.lore_items:
+        return ("", [])
+        
+    char_names = [c.name for c in novel.characters if c.id in chapter.selected_character_ids]
+    loc_names = [l.name for l in novel.locations if l.id in chapter.selected_location_ids]
+    
+    # 組合待掃描的文本池 (標題 + 大綱 + 特別指示 + 登場角色 + 登場地點 + 最新正文末尾)
+    scan_corpus = f"{chapter.title} {chapter.outline or ''} {custom_instruction or ''} {' '.join(char_names)} {' '.join(loc_names)} {current_tail}".lower()
+    
+    manual_ids = set(chapter.selected_lore_item_ids or [])
+    triggered_items = []
+    
+    for item in novel.lore_items:
+        if not item.is_enabled:
+            continue
+            
+        trigger_reason = None
+        
+        # 1. 作者手動指定
+        if item.id and item.id in manual_ids:
+            trigger_reason = "作者手動指定勾選"
+        # 2. 常駐全域生效
+        elif item.is_constant:
+            trigger_reason = "常駐生效"
+        # 3. 標題完全命中
+        elif item.title and item.title.lower() in scan_corpus:
+            trigger_reason = f"命中詞條標題「{item.title}」"
+        # 4. 關鍵字觸發
+        else:
+            for kw in item.keywords:
+                kw_clean = kw.strip().lower()
+                if kw_clean and kw_clean in scan_corpus:
+                    trigger_reason = f"命中關鍵字「{kw.strip()}」"
+                    break
+                    
+        if trigger_reason:
+            triggered_items.append({
+                "id": item.id,
+                "title": item.title,
+                "category": item.category,
+                "trigger_reason": trigger_reason,
+                "keywords": item.keywords,
+                "content": item.content.strip()
+            })
+            
+    if not triggered_items:
+        return ("", [])
+        
+    entries_text = []
+    for item in triggered_items:
+        kw_display = f" [觸發原因: {item['trigger_reason']}]" if item.get('trigger_reason') else ""
+        entries_text.append(
+            f"📌【{item['title']}】 (類別: {item['category']}{kw_display}):\n"
+            f"   詳細設定與真相：{item['content']}"
+        )
+        
+    lore_text = (
+        f"【★★★★★ 長時記憶：觸發之關鍵伏筆與世界書記憶庫 (Lorebook) ★★★★★】\n"
+        f"（以下是本章情節/人物/關鍵字喚醒的重要設定、重大伏筆與秘密真相，創作時請嚴格遵守，務必與之呼應且不得推翻衝突）：\n\n"
+        + "\n\n".join(entries_text)
+        + "\n\n"
+    )
+    
+    return (lore_text, triggered_items)
+
+
 # ==================== 5. SSE 串流創作 API (打字機即時顯示) ====================
 
 @app.post("/api/ai/generate-chapter-stream")
@@ -545,8 +614,9 @@ async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
     else:
         locs_text = "（由 AI 依劇情流動自由發揮所屬場景）"
 
-    # 長時記憶：全書前情時間線 + 直前章節銜接
+    # 長時記憶：全書前情時間線 + 直前章節銜接 + 世界書伏筆記憶庫
     timeline_text, immediate_context = build_timeline_context(novel, chapter.id)
+    lore_text, _ = build_lorebook_context(novel, chapter, req.custom_instruction)
 
     target_words = req.target_words or 2000
     global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
@@ -568,7 +638,7 @@ async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
 核心世界觀：{novel.world_background}
 主要劇情主線：{novel.main_plot}
 
-{timeline_text}{immediate_context}【當前章節創作任務】
+{timeline_text}{lore_text}{immediate_context}【當前章節創作任務】
 章節標題：{chapter.title} (第 {chapter.chapter_number} 章)
 本章核心大綱與目標事件：
 {chapter.outline or "請根據主線推進引人入勝的關鍵事件與衝突"}
@@ -633,12 +703,13 @@ async def api_ai_continue_writing_stream(req: ContinueWritingRequest):
 """
 
     timeline_text, _ = build_timeline_context(novel, req.chapter_id)
+    lore_text, _ = build_lorebook_context(novel, chapter, req.instruction, prev_text) if chapter else ("", [])
 
     user_prompt = f"""{style_header}小說名稱：《{novel.title}》
 風格基調：{novel.tone}
 章節標題：{chapter.title if chapter else "未命名"}
 
-{timeline_text}【當前已有正文的結尾部分】：
+{timeline_text}{lore_text}【當前已有正文的結尾部分】：
 ...
 {prev_text}
 
@@ -717,5 +788,92 @@ async def api_ai_generate_chapter_summary(req: GenerateChapterSummaryRequest):
         return {"summary": clean_summary, "novel": novel}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提煉小結失敗: {str(e)}")
+
+
+# ==================== 7. 長時記憶：AI 深度分析提煉伏筆與世界書卡片 ====================
+
+@app.post("/api/ai/analyze-lore-items")
+async def api_ai_analyze_lore_items(req: AnalyzeLoreItemsRequest):
+    novel = get_novel(req.novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="找不到小說專案")
+        
+    global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
+    sys_prompt = prompts.get_lore_analyze_prompt(req.count or 4, global_style)
+    
+    # 組合小說現有精華資訊
+    char_summaries = [f"- {c.name} ({c.role}): {c.profile}" for c in novel.characters[:6]]
+    char_info = "\n".join(char_summaries) if char_summaries else "暫無角色資料"
+    
+    chapter_summaries = []
+    for c in sorted(novel.chapters, key=lambda x: x.chapter_number)[:8]:
+        s = c.summary or c.outline or ""
+        chapter_summaries.append(f"- 第 {c.chapter_number} 章《{c.title}》: {s[:100]}")
+    chaps_info = "\n".join(chapter_summaries) if chapter_summaries else "暫無章節資料"
+    
+    existing_lore_titles = [f"【{item.title}】({item.category})" for item in (novel.lore_items or [])]
+    existing_info = "、".join(existing_lore_titles) if existing_lore_titles else "目前尚未建立任何伏筆卡片"
+    
+    user_prompt = f"""請為這部小說深度分析並提煉出 {req.count or 4} 個關鍵的世界書與伏筆記憶卡片：
+【書名】：{novel.title}
+【題材與基調】：{novel.genre} / {novel.tone}
+【世界觀背景】：{novel.world_background}
+【主要核心主線】：{novel.main_plot}
+
+【已有角色設定】：
+{char_info}
+
+【目前章節劇情推展】：
+{chaps_info}
+
+【已存在的記憶條目（請勿重複提煉相同設定）】：
+{existing_info}
+
+【作者補充指引】：{req.hint or "無特殊指引，請從主線伏筆、關鍵道具、誓約或世界特殊法則著手"}
+"""
+
+    try:
+        raw_resp = await AIService.call_llm(
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
+            temperature=0.75,
+            max_tokens=2500
+        )
+        extracted = extract_json_data(raw_resp)
+        if isinstance(extracted, list):
+            items = []
+            for d in extracted:
+                if isinstance(d, dict) and d.get("title"):
+                    items.append({
+                        "id": f"lore-{uuid.uuid4().hex[:8]}",
+                        "title": d.get("title", "未命名詞條"),
+                        "category": d.get("category", "伏筆秘密"),
+                        "keywords": d.get("keywords", []),
+                        "content": d.get("content", ""),
+                        "is_constant": bool(d.get("is_constant", False)),
+                        "is_enabled": True
+                    })
+            return {"items": items}
+        return {"items": []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"提煉世界書伏筆卡片失敗: {str(e)}")
+
+
+@app.get("/api/novels/{novel_id}/chapters/{chapter_id}/preview-lore")
+async def api_preview_chapter_lore(novel_id: str, chapter_id: str):
+    novel = get_novel(novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="找不到小說專案")
+    chapter = next((c for c in novel.chapters if c.id == chapter_id), None)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="找不到指定章節")
+        
+    lore_text, triggered = build_lorebook_context(novel, chapter)
+    return {
+        "triggered_items": triggered,
+        "all_items": [item.model_dump() for item in (novel.lore_items or [])],
+        "lore_prompt_text": lore_text
+    }
+
 
 

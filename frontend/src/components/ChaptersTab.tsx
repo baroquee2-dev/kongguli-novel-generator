@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react';
-import type { Novel, Chapter, AISettings } from '../types';
+import React, { useState, useRef, useMemo } from 'react';
+import type { Novel, Chapter, AISettings, LoreItem } from '../types';
 import { 
   FileText, Plus, Trash2, Sparkles, Play, Users, MapPin, 
   PenTool, CheckSquare, Square, CornerDownLeft, Sparkle, StopCircle, User, X,
   AlertTriangle, ShieldAlert, KeyRound, RefreshCw, Loader2, Settings,
-  Eye, Edit3, BookOpen, Type, History, ChevronDown, ChevronUp
+  Eye, Edit3, BookOpen, Type, History, ChevronDown, ChevronUp, Brain
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -239,6 +239,7 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
   // 長時記憶：AI 提煉章節小結與時間線預覽狀態
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [showTimelinePreview, setShowTimelinePreview] = useState(false);
+  const [showLorePreview, setShowLorePreview] = useState(false);
 
   const currentChapter = novel.chapters.find(c => c.id === selectedChapId) || novel.chapters[0];
   const selectedCharacters = novel.characters.filter(c => currentChapter?.selected_character_ids?.includes(c.id));
@@ -247,6 +248,59 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
   const sortedChapters = [...novel.chapters].sort((a, b) => a.chapter_number - b.chapter_number);
   const currentChapterIdx = sortedChapters.findIndex(c => c.id === currentChapter?.id);
   const precedingChapters = currentChapterIdx > 0 ? sortedChapters.slice(0, currentChapterIdx) : [];
+
+  // 計算本章觸發的世界書伏筆卡片 (長時記憶第 2 階段)
+  const activeLoreItems = useMemo(() => {
+    if (!currentChapter || !novel.lore_items || novel.lore_items.length === 0) return [];
+    const manualIds = new Set(currentChapter.selected_lore_item_ids || []);
+    const charNames = selectedCharacters.map(c => c.name);
+    const locNames = novel.locations
+      .filter(l => currentChapter.selected_location_ids?.includes(l.id))
+      .map(l => l.name);
+    const tailText = currentChapter.content ? currentChapter.content.slice(-600) : '';
+    const scanCorpus = `${currentChapter.title} ${currentChapter.outline || ''} ${customPrompt || ''} ${charNames.join(' ')} ${locNames.join(' ')} ${tailText}`.toLowerCase();
+
+    const results: Array<{
+      item: LoreItem;
+      reason: string;
+      isManual: boolean;
+      isConstant: boolean;
+    }> = [];
+
+    for (const item of novel.lore_items) {
+      if (!item.is_enabled) continue;
+      const isManual = manualIds.has(item.id);
+      const isConstant = Boolean(item.is_constant);
+
+      if (isManual) {
+        results.push({ item, reason: '作者手動指定勾選', isManual: true, isConstant });
+      } else if (isConstant) {
+        results.push({ item, reason: '常駐生效 (每章強制注入)', isManual: false, isConstant: true });
+      } else if (item.title && scanCorpus.includes(item.title.toLowerCase())) {
+        results.push({ item, reason: `命中詞條名「${item.title}」`, isManual: false, isConstant: false });
+      } else {
+        const hitKw = (item.keywords || []).find(kw => {
+          const k = kw.trim().toLowerCase();
+          return k && scanCorpus.includes(k);
+        });
+        if (hitKw) {
+          results.push({ item, reason: `命中關鍵字「${hitKw.trim()}」`, isManual: false, isConstant: false });
+        }
+      }
+    }
+    return results;
+  }, [novel.lore_items, currentChapter, selectedCharacters, novel.locations, customPrompt]);
+
+  // 切換某條伏筆卡片的手動指定狀態
+  const handleToggleManualLore = (loreId: string) => {
+    if (!currentChapter) return;
+    const currentSelected = currentChapter.selected_lore_item_ids || [];
+    const exists = currentSelected.includes(loreId);
+    const updated = exists 
+      ? currentSelected.filter(id => id !== loreId)
+      : [...currentSelected, loreId];
+    handleUpdateChapter({ selected_lore_item_ids: updated });
+  };
 
   // 一鍵 AI 提煉本章小結
   const handleGenerateSummary = async () => {
@@ -799,6 +853,26 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                     </button>
                   )}
 
+                  {/* 世界書與伏筆記憶庫切換 (當小說有記憶卡片時顯示) */}
+                  {(novel.lore_items && novel.lore_items.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowLorePreview(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition ${
+                        showLorePreview 
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm shadow-cyan-500/20' 
+                          : activeLoreItems.length > 0
+                            ? 'bg-slate-900/90 text-cyan-400 border-cyan-500/30 hover:border-cyan-500/60 hover:text-cyan-300'
+                            : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-slate-300'
+                      }`}
+                      title="查看或自訂本章寫作時 AI 將自動喚醒的世界書設定與伏筆記憶 (Lorebook)"
+                    >
+                      <Brain className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>伏筆記憶 ({activeLoreItems.length}條)</span>
+                      {showLorePreview ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                  )}
+
                   <select
                     value={targetWords}
                     disabled={isGenerating || isContinuing}
@@ -893,6 +967,74 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                           </div>
                           <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-2">
                             {displayText}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 世界書伏筆記憶展開面板 */}
+              {showLorePreview && novel.lore_items && novel.lore_items.length > 0 && (
+                <div className="p-3.5 bg-slate-950/95 border border-cyan-500/40 rounded-xl space-y-3 text-xs animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span className="font-semibold text-cyan-200">
+                        本章觸發之世界書與伏筆記憶庫 (已激活 {activeLoreItems.length} / 共 {novel.lore_items.length} 條)
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      💡 依據本章大綱/登場角色/關鍵字自動喚醒，你也可以直接點擊核取方塊強制指定
+                    </span>
+                  </div>
+
+                  {/* 條目列表 */}
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {novel.lore_items.filter(item => item.is_enabled).map((item) => {
+                      const activeInfo = activeLoreItems.find(a => a.item.id === item.id);
+                      const isTriggered = Boolean(activeInfo);
+                      const isManual = (currentChapter.selected_lore_item_ids || []).includes(item.id);
+
+                      return (
+                        <div 
+                          key={item.id} 
+                          className={`p-2.5 rounded-lg border transition space-y-1.5 ${
+                            isTriggered
+                              ? 'bg-slate-900/90 border-cyan-500/30'
+                              : 'bg-slate-950/50 border-slate-800/80 opacity-60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isManual || isTriggered}
+                                onChange={() => handleToggleManualLore(item.id)}
+                                className="rounded border-slate-700 text-cyan-500 focus:ring-0"
+                              />
+                              <span className="font-semibold text-slate-200 text-xs">
+                                【{item.title}】
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
+                                {item.category}
+                              </span>
+                            </label>
+
+                            {activeInfo ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-medium">
+                                ✓ {activeInfo.reason}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-500">
+                                未觸發關鍵字 (點擊核取方塊可強制指派)
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-2">
+                            {item.content}
                           </p>
                         </div>
                       );

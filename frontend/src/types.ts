@@ -39,6 +39,16 @@ export interface Character {
   avatar_url?: string;
 }
 
+export interface LoreItem {
+  id: string;
+  title: string;
+  category: string;
+  keywords: string[];
+  content: string;
+  is_constant: boolean;
+  is_enabled: boolean;
+}
+
 export interface Chapter {
   id: string;
   chapter_number: number;
@@ -47,6 +57,7 @@ export interface Chapter {
   selected_location_ids: string[];
   selected_sub_location_ids: string[];
   selected_character_ids: string[];
+  selected_lore_item_ids?: string[];
   content: string;
   word_count: number;
   summary?: string;
@@ -63,6 +74,7 @@ export interface Novel {
   locations: Location[];
   characters: Character[];
   chapters: Chapter[];
+  lore_items?: LoreItem[];
   created_at?: string;
   updated_at?: string;
 }
@@ -76,5 +88,6 @@ export interface NovelListItem {
   locations_count: number;
   characters_count: number;
   chapters_count: number;
+  lore_items_count?: number;
   updated_at?: string;
 }

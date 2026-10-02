@@ -21,6 +21,7 @@ def list_novels() -> List[dict]:
                     "locations_count": len(data.get("locations", [])),
                     "characters_count": len(data.get("characters", [])),
                     "chapters_count": len(data.get("chapters", [])),
+                    "lore_items_count": len(data.get("lore_items", [])),
                     "updated_at": data.get("updated_at")
                 })
         except Exception as e:
@@ -135,6 +136,35 @@ def create_sample_novel() -> Novel:
                 "content": "阿爾卡迪亞的黃昏總是帶著一股燃燒以太後的微甜焦香。\n\n在浮空城第三迴旋區的下層，『銹蝕齒輪酒館』的銅製門扉被粗暴地推開。氣壓管道發出尖銳的嘶嘶聲，混雜著粗劣黑麥酒與高溫潤滑油的氣味迎面撲來。\n\n萊恩・沃克正咬著一根未點燃的草葉，手中握著一把微型扳手，全神貫注地調整著客人送修的發條懷錶。突然，頭頂上傳來一陣沉悶而奇異的共鳴——那不是普通齒輪脫節的雜音，而像是整座浮空城的骨骼都在呻吟。\n\n「喂，萊恩小子，你看天上！」酒保老托馬斯猛地停下手裡的酒杯，望向天花板的採光天窗。\n\n原本在雲海暮色中散發著璀璨藍芒的『星軌發動機核心室』，光芒正在急速衰退。一道肉眼可見的能量漣漪擴散開來，緊接著，酒館內的以太燈管發出一陣劈啪爆響，整座繁華的天穹城瞬間陷入一片駭人的死寂與黑暗……",
                 "word_count": 350,
                 "summary": "以太之心停擺，萊恩與薇薇安在酒館初識，揭發核心失竊的重大陰謀。"
+            }
+        ],
+        lore_items=[
+            {
+                "id": "lore-1",
+                "title": "以太之心核心殘片",
+                "category": "關鍵物品",
+                "keywords": ["以太之心", "核心", "殘片", "暗光", "能源"],
+                "content": "千年前維持天穹城懸浮的古代科技核心，熄滅後崩裂為三枚神秘殘片。其中一枚被秘密藏匿於下界迷霧廢墟中，據傳散發微弱紫芒，能短暫驅散毒霧並激活古老防衛發條傀儡。",
+                "is_constant": False,
+                "is_enabled": True
+            },
+            {
+                "id": "lore-2",
+                "title": "血霧誓約",
+                "category": "誓言契約",
+                "keywords": ["誓約", "血盟", "承諾", "秘密協定"],
+                "content": "萊恩與薇薇安在地下酒吧逃脫時立下的不破約定：在找回被盜核心之前，絕不向浮空城執政官及其警衛透露下界的任何入口座標與古代符文研究成果。",
+                "is_constant": False,
+                "is_enabled": True
+            },
+            {
+                "id": "lore-3",
+                "title": "以太畸變法則",
+                "category": "特殊設定",
+                "keywords": ["畸變", "毒霧", "結晶", "以太反噬"],
+                "content": "生物長時間暴露於未過濾的高濃縮以太氣體中，皮膚與血液會逐漸產生紫水晶狀結晶，精神陷入狂暴瘋狂。唯有佩戴薇薇安研製的以太純化過濾面罩或服用特殊抑制劑方可延緩症狀。",
+                "is_constant": True,
+                "is_enabled": True
             }
         ]
     )

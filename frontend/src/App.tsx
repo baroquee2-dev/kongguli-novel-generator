@@ -7,15 +7,16 @@ import { StoryOverviewTab } from './components/StoryOverviewTab';
 import { LocationsTab } from './components/LocationsTab';
 import { CharactersTab } from './components/CharactersTab';
 import { ChaptersTab } from './components/ChaptersTab';
+import { LorebookTab } from './components/LorebookTab';
 import { 
-  BookMarked, MapPin, Users, BookOpenCheck, Loader2, CheckCircle
+  BookMarked, MapPin, Users, BookOpenCheck, Loader2, CheckCircle, Brain
 } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [novels, setNovels] = useState<NovelListItem[]>([]);
   const [currentNovelId, setCurrentNovelId] = useState<string>('');
   const [currentNovel, setCurrentNovel] = useState<Novel | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'locations' | 'characters' | 'chapters'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'locations' | 'characters' | 'chapters' | 'lorebook'>('overview');
 
   const [settings, setSettings] = useState<AISettings>({
     provider: 'openai',
@@ -234,6 +235,12 @@ export const App: React.FC = () => {
               { id: 'overview', label: '第 1 層：小說主體', icon: BookMarked, color: 'text-purple-400' },
               { id: 'locations', label: '第 2 層：世界地點', icon: MapPin, color: 'text-emerald-400' },
               { id: 'characters', label: '第 3 層：角色陣容', icon: Users, color: 'text-blue-400' },
+              { 
+                id: 'lorebook', 
+                label: `第 5 層：記憶伏筆庫${currentNovel?.lore_items && currentNovel.lore_items.length > 0 ? ` (${currentNovel.lore_items.length})` : ''}`, 
+                icon: Brain, 
+                color: 'text-cyan-400' 
+              },
               { id: 'chapters', label: '第 4 層：章節創作', icon: BookOpenCheck, color: 'text-pink-400' },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -282,6 +289,9 @@ export const App: React.FC = () => {
             )}
             {activeTab === 'characters' && (
               <CharactersTab novel={currentNovel} onChange={handleNovelChange} />
+            )}
+            {activeTab === 'lorebook' && (
+              <LorebookTab novel={currentNovel} onChange={handleNovelChange} />
             )}
             {activeTab === 'chapters' && (
               <ChaptersTab 

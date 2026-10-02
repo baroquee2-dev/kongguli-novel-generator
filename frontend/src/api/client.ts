@@ -1,4 +1,4 @@
-import type { AISettings, Novel, NovelListItem, Location, Character } from '../types';
+import type { AISettings, Novel, NovelListItem, Location, Character, LoreItem } from '../types';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -334,6 +334,33 @@ export const api = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: '提煉章節小結失敗' }));
       throw new Error(err.detail || '提煉章節小結失敗');
+    }
+    return res.json();
+  },
+
+  // 長時記憶第二階段：AI 分析提煉世界書伏筆卡片
+  async analyzeLoreItems(data: { novel_id: string; count?: number; hint?: string }): Promise<{ items: LoreItem[] }> {
+    const res = await fetch(`${API_BASE}/ai/analyze-lore-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: '提煉世界書伏筆卡片失敗' }));
+      throw new Error(err.detail || '提煉世界書伏筆卡片失敗');
+    }
+    return res.json();
+  },
+
+  // 預覽章節觸發之伏筆卡片
+  async previewChapterLore(novelId: string, chapterId: string): Promise<{
+    triggered_items: Array<{ id: string; title: string; category: string; trigger_reason: string; keywords: string[]; content: string }>;
+    all_items: LoreItem[];
+    lore_prompt_text: string;
+  }> {
+    const res = await fetch(`${API_BASE}/novels/${novelId}/chapters/${chapterId}/preview-lore`);
+    if (!res.ok) {
+      throw new Error('獲取章節伏筆預覽失敗');
     }
     return res.json();
   },

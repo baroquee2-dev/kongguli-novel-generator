@@ -61,6 +61,17 @@ class Chapter(BaseModel):
     content: str = Field(default="", description="正文內容")
     word_count: int = Field(default=0, description="章節字數")
     summary: Optional[str] = Field(default="", description="章節後續劇情小結 (供後續章節銜接)")
+    selected_lore_item_ids: Optional[List[str]] = Field(default_factory=list, description="本章手動指定的特定記憶伏筆 ID (預設由系統自動根據關鍵字掃描命中)")
+
+# ==================== 第 5 層：世界書與伏筆記憶庫 (Lorebook) ====================
+class LoreItem(BaseModel):
+    id: Optional[str] = Field(default="", description="記憶詞條 ID")
+    title: str = Field(..., description="詞條名稱 (如：九霄龍佩、太古血盟、黑市神秘商號)")
+    category: str = Field(default="伏筆秘密", description="分類 (伏筆秘密 | 關鍵物品 | 誓言契約 | 組織勢力 | 歷史傳說 | 特殊設定)")
+    keywords: List[str] = Field(default_factory=list, description="觸發關鍵字列表，如 ['龍佩', '玉佩', '信物']")
+    content: str = Field(default="", description="記憶與伏筆詳情、真相、限制或來歷")
+    is_constant: bool = Field(default=False, description="是否常駐生效 (無需關鍵字，每一章均注入)")
+    is_enabled: bool = Field(default=True, description="是否啟用")
 
 # ==================== 第 1 層：小說主體 ====================
 class Novel(BaseModel):
@@ -77,6 +88,7 @@ class Novel(BaseModel):
     locations: List[Location] = Field(default_factory=list, description="第 2 層：地點大項目與附屬細節")
     characters: List[Character] = Field(default_factory=list, description="第 3 層：角色清單與頭像")
     chapters: List[Chapter] = Field(default_factory=list, description="第 4 層：章節清單")
+    lore_items: List[LoreItem] = Field(default_factory=list, description="第 5 層：長時記憶庫 / 關鍵伏筆與世界書卡片 (Lorebook)")
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -122,4 +134,10 @@ class ContinueWritingRequest(BaseModel):
 class GenerateChapterSummaryRequest(BaseModel):
     novel_id: str
     chapter_id: str
+
+class AnalyzeLoreItemsRequest(BaseModel):
+    novel_id: str
+    count: Optional[int] = 4
+    hint: Optional[str] = ""
+
 
