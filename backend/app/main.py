@@ -4,7 +4,7 @@ import json
 import urllib.parse
 from pathlib import Path
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -14,13 +14,14 @@ from app.models import (
     GenerateOutlineRequest, GenerateLocationsRequest,
     GenerateCharactersRequest, GenerateChapterRequest,
     ContinueWritingRequest, GenerateChapterSummaryRequest,
-    AnalyzeLoreItemsRequest
+    AnalyzeLoreItemsRequest, QueryRagRequest, RecalledScene
 )
 from app.config import get_settings, save_settings, UPLOADS_DIR
 from app.db import (
     list_novels, get_novel, save_novel, delete_novel, create_sample_novel
 )
 from app.ai_service import AIService, clean_json_string, extract_json_data
+from app.rag_service import RAGService
 from app import prompts
 
 app = FastAPI(title="KongGuLi-孔固力自動小說生成器 API", version="1.0.0")
@@ -100,15 +101,19 @@ async def api_get_novel(novel_id: str):
     return n
 
 @app.put("/api/novels/{novel_id}", response_model=Novel)
-async def api_update_novel(novel_id: str, novel: Novel):
+async def api_update_novel(novel_id: str, novel: Novel, background_tasks: BackgroundTasks):
     novel.id = novel_id
-    return save_novel(novel)
+    saved = save_novel(novel)
+    # 背景自動非同步重構/更新 RAG 向量索引
+    background_tasks.add_task(RAGService.index_novel, saved)
+    return saved
 
 @app.delete("/api/novels/{novel_id}")
 async def api_delete_novel(novel_id: str):
     success = delete_novel(novel_id)
     if not success:
         raise HTTPException(status_code=404, detail="找不到指定小說")
+    RAGService.delete_novel_index(novel_id)
     return {"success": True}
 
 @app.post("/api/novels/init-sample", response_model=Novel)
@@ -349,9 +354,13 @@ async def api_ai_generate_chapter(req: GenerateChapterRequest):
     else:
         locs_text = "（由 AI 依劇情流動自由發揮所屬場景）"
 
-    # 長時記憶：全書前情時間線 + 直前章節銜接 + 世界書伏筆記憶庫
+    # 長時記憶：全書前情時間線 + 直前章節銜接 + 世界書伏筆記憶庫 + RAG 歷史情節深海回撈
     timeline_text, immediate_context = build_timeline_context(novel, chapter.id)
     lore_text, _ = build_lorebook_context(novel, chapter, req.custom_instruction)
+    recalled_scenes = await RAGService.query_historical_scenes(
+        novel, chapter, query_hint=req.rag_hint or req.custom_instruction or "", top_k=3
+    )
+    rag_text = RAGService.build_rag_prompt(recalled_scenes)
 
     target_words = req.target_words or 2000
     global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
@@ -373,7 +382,7 @@ async def api_ai_generate_chapter(req: GenerateChapterRequest):
 核心世界觀：{novel.world_background}
 主要劇情主線：{novel.main_plot}
 
-{timeline_text}{lore_text}{immediate_context}【當前章節創作任務】
+{timeline_text}{lore_text}{rag_text}{immediate_context}【當前章節創作任務】
 章節標題：{chapter.title} (第 {chapter.chapter_number} 章)
 本章核心大綱與目標事件：
 {chapter.outline or "請根據主線推進引人入勝的關鍵事件與衝突"}
@@ -423,12 +432,18 @@ async def api_ai_continue_writing(req: ContinueWritingRequest):
 
     timeline_text, _ = build_timeline_context(novel, req.chapter_id)
     lore_text, _ = build_lorebook_context(novel, chapter, req.instruction, prev_text) if chapter else ("", [])
+    rag_text = ""
+    if chapter:
+        recalled_scenes = await RAGService.query_historical_scenes(
+            novel, chapter, query_hint=req.rag_hint or req.instruction or "", top_k=2
+        )
+        rag_text = RAGService.build_rag_prompt(recalled_scenes)
 
     user_prompt = f"""{style_header}小說名稱：《{novel.title}》
 風格基調：{novel.tone}
 章節標題：{chapter.title if chapter else "未命名"}
 
-{timeline_text}{lore_text}【當前已有正文的結尾部分】：
+{timeline_text}{lore_text}{rag_text}【當前已有正文的結尾部分】：
 ...
 {prev_text}
 
@@ -614,9 +629,13 @@ async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
     else:
         locs_text = "（由 AI 依劇情流動自由發揮所屬場景）"
 
-    # 長時記憶：全書前情時間線 + 直前章節銜接 + 世界書伏筆記憶庫
+    # 長時記憶：全書前情時間線 + 直前章節銜接 + 世界書伏筆記憶庫 + RAG 歷史情節深海回撈
     timeline_text, immediate_context = build_timeline_context(novel, chapter.id)
     lore_text, _ = build_lorebook_context(novel, chapter, req.custom_instruction)
+    recalled_scenes = await RAGService.query_historical_scenes(
+        novel, chapter, query_hint=req.rag_hint or req.custom_instruction or "", top_k=3
+    )
+    rag_text = RAGService.build_rag_prompt(recalled_scenes)
 
     target_words = req.target_words or 2000
     global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
@@ -638,7 +657,7 @@ async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
 核心世界觀：{novel.world_background}
 主要劇情主線：{novel.main_plot}
 
-{timeline_text}{lore_text}{immediate_context}【當前章節創作任務】
+{timeline_text}{lore_text}{rag_text}{immediate_context}【當前章節創作任務】
 章節標題：{chapter.title} (第 {chapter.chapter_number} 章)
 本章核心大綱與目標事件：
 {chapter.outline or "請根據主線推進引人入勝的關鍵事件與衝突"}
@@ -704,12 +723,18 @@ async def api_ai_continue_writing_stream(req: ContinueWritingRequest):
 
     timeline_text, _ = build_timeline_context(novel, req.chapter_id)
     lore_text, _ = build_lorebook_context(novel, chapter, req.instruction, prev_text) if chapter else ("", [])
+    rag_text = ""
+    if chapter:
+        recalled_scenes = await RAGService.query_historical_scenes(
+            novel, chapter, query_hint=req.rag_hint or req.instruction or "", top_k=2
+        )
+        rag_text = RAGService.build_rag_prompt(recalled_scenes)
 
     user_prompt = f"""{style_header}小說名稱：《{novel.title}》
 風格基調：{novel.tone}
 章節標題：{chapter.title if chapter else "未命名"}
 
-{timeline_text}{lore_text}【當前已有正文的結尾部分】：
+{timeline_text}{lore_text}{rag_text}【當前已有正文的結尾部分】：
 ...
 {prev_text}
 
@@ -874,6 +899,61 @@ async def api_preview_chapter_lore(novel_id: str, chapter_id: str):
         "all_items": [item.model_dump() for item in (novel.lore_items or [])],
         "lore_prompt_text": lore_text
     }
+
+
+# ==================== 8. 長時記憶：RAG 歷史深海回撈與索引維護 API ====================
+
+@app.post("/api/ai/rag/query", response_model=List[RecalledScene])
+async def api_query_rag(req: QueryRagRequest):
+    novel = get_novel(req.novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="找不到小說專案")
+    chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="找不到指定章節")
+    
+    return await RAGService.query_historical_scenes(
+        novel=novel,
+        current_chapter=chapter,
+        query_hint=req.hint or "",
+        top_k=req.top_k or 3
+    )
+
+
+@app.get("/api/novels/{novel_id}/chapters/{chapter_id}/preview-rag")
+async def api_preview_chapter_rag(novel_id: str, chapter_id: str, hint: Optional[str] = ""):
+    novel = get_novel(novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="找不到小說專案")
+    chapter = next((c for c in novel.chapters if c.id == chapter_id), None)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="找不到指定章節")
+        
+    scenes = await RAGService.query_historical_scenes(
+        novel=novel,
+        current_chapter=chapter,
+        query_hint=hint or "",
+        top_k=3
+    )
+    rag_prompt_text = RAGService.build_rag_prompt(scenes)
+    return {
+        "recalled_scenes": [s.model_dump() for s in scenes],
+        "rag_prompt_text": rag_prompt_text
+    }
+
+
+@app.post("/api/ai/rag/reindex/{novel_id}")
+async def api_reindex_novel_rag(novel_id: str, background_tasks: BackgroundTasks):
+    novel = get_novel(novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="找不到小說專案")
+        
+    background_tasks.add_task(RAGService.index_novel, novel)
+    return {
+        "status": "ok",
+        "message": f"已在背景排程重構《{novel.title}》的全書 RAG 向量索引庫"
+    }
+
 
 
 

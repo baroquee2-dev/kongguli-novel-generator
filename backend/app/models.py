@@ -123,6 +123,7 @@ class GenerateChapterRequest(BaseModel):
     chapter_id: str
     target_words: Optional[int] = 2000
     custom_instruction: Optional[str] = ""
+    rag_hint: Optional[str] = ""
 
 class ContinueWritingRequest(BaseModel):
     novel_id: str
@@ -130,6 +131,7 @@ class ContinueWritingRequest(BaseModel):
     current_content: str
     instruction: Optional[str] = "順著當前情節繼續生動地描寫下去"
     target_words: Optional[int] = 800
+    rag_hint: Optional[str] = ""
 
 class GenerateChapterSummaryRequest(BaseModel):
     novel_id: str
@@ -139,5 +141,21 @@ class AnalyzeLoreItemsRequest(BaseModel):
     novel_id: str
     count: Optional[int] = 4
     hint: Optional[str] = ""
+
+class QueryRagRequest(BaseModel):
+    novel_id: str
+    chapter_id: str
+    hint: Optional[str] = ""
+    top_k: Optional[int] = 3
+
+class RecalledScene(BaseModel):
+    id: str
+    chapter_number: int
+    chapter_title: str
+    text: str
+    score: float
+    reason: str
+    characters: List[str] = Field(default_factory=list)
+
 
 

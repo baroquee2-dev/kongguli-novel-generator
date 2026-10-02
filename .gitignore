@@ -24,6 +24,7 @@ data/novels/*
 !data/novels/.gitkeep
 data/uploads/*
 !data/uploads/.gitkeep
+data/*.db
 
 # Environment variables
 .env

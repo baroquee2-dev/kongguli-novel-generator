@@ -1,4 +1,4 @@
-import type { AISettings, Novel, NovelListItem, Location, Character, LoreItem } from '../types';
+import type { AISettings, Novel, NovelListItem, Location, Character, LoreItem, RecalledScene } from '../types';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -154,6 +154,7 @@ export const api = {
     chapter_id: string;
     target_words?: number;
     custom_instruction?: string;
+    rag_hint?: string;
   }): Promise<{ content: string }> {
     const res = await fetch(`${API_BASE}/ai/generate-chapter`, {
       method: 'POST',
@@ -172,6 +173,7 @@ export const api = {
     current_content: string;
     instruction?: string;
     target_words?: number;
+    rag_hint?: string;
   }): Promise<{ added_content: string }> {
     const res = await fetch(`${API_BASE}/ai/continue-writing`, {
       method: 'POST',
@@ -190,6 +192,7 @@ export const api = {
       chapter_id: string;
       target_words?: number;
       custom_instruction?: string;
+      rag_hint?: string;
     },
     onChunk: (text: string) => void,
     signal?: AbortSignal
@@ -260,6 +263,7 @@ export const api = {
       current_content: string;
       instruction?: string;
       target_words?: number;
+      rag_hint?: string;
     },
     onChunk: (text: string) => void,
     signal?: AbortSignal
@@ -361,6 +365,42 @@ export const api = {
     const res = await fetch(`${API_BASE}/novels/${novelId}/chapters/${chapterId}/preview-lore`);
     if (!res.ok) {
       throw new Error('獲取章節伏筆預覽失敗');
+    }
+    return res.json();
+  },
+
+  // 長時記憶第三階段：RAG 歷史深海回撈
+  async queryRagScenes(data: { novel_id: string; chapter_id: string; hint?: string; top_k?: number }): Promise<RecalledScene[]> {
+    const res = await fetch(`${API_BASE}/ai/rag/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: '回撈歷史情節失敗' }));
+      throw new Error(err.detail || '回撈歷史情節失敗');
+    }
+    return res.json();
+  },
+
+  async previewChapterRag(novelId: string, chapterId: string, hint?: string): Promise<{
+    recalled_scenes: RecalledScene[];
+    rag_prompt_text: string;
+  }> {
+    const query = hint ? `?hint=${encodeURIComponent(hint)}` : '';
+    const res = await fetch(`${API_BASE}/novels/${novelId}/chapters/${chapterId}/preview-rag${query}`);
+    if (!res.ok) {
+      throw new Error('獲取歷史回撈預覽失敗');
+    }
+    return res.json();
+  },
+
+  async reindexNovelRag(novelId: string): Promise<{ status: string; message: string }> {
+    const res = await fetch(`${API_BASE}/ai/rag/reindex/${novelId}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      throw new Error('重構向量索引庫失敗');
     }
     return res.json();
   },

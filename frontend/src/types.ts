@@ -91,3 +91,13 @@ export interface NovelListItem {
   lore_items_count?: number;
   updated_at?: string;
 }
+
+export interface RecalledScene {
+  id: string;
+  chapter_number: number;
+  chapter_title: string;
+  text: string;
+  score: number;
+  reason: string;
+  characters: string[];
+}

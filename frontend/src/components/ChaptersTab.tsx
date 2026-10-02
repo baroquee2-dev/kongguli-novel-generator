@@ -1,10 +1,10 @@
-import React, { useState, useRef, useMemo } from 'react';
-import type { Novel, Chapter, AISettings, LoreItem } from '../types';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import type { Novel, Chapter, AISettings, LoreItem, RecalledScene } from '../types';
 import { 
   FileText, Plus, Trash2, Sparkles, Play, Users, MapPin, 
   PenTool, CheckSquare, Square, CornerDownLeft, Sparkle, StopCircle, User, X,
   AlertTriangle, ShieldAlert, KeyRound, RefreshCw, Loader2, Settings,
-  Eye, Edit3, BookOpen, Type, History, ChevronDown, ChevronUp, Brain
+  Eye, Edit3, BookOpen, Type, History, ChevronDown, ChevronUp, Brain, Database
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -241,6 +241,13 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
   const [showTimelinePreview, setShowTimelinePreview] = useState(false);
   const [showLorePreview, setShowLorePreview] = useState(false);
 
+  // 長時記憶第 3 階段：RAG 歷史深海回撈狀態
+  const [showRagPreview, setShowRagPreview] = useState(false);
+  const [ragHint, setRagHint] = useState('');
+  const [recalledScenes, setRecalledScenes] = useState<RecalledScene[]>([]);
+  const [isLoadingRag, setIsLoadingRag] = useState(false);
+  const [isReindexing, setIsReindexing] = useState(false);
+
   const currentChapter = novel.chapters.find(c => c.id === selectedChapId) || novel.chapters[0];
   const selectedCharacters = novel.characters.filter(c => currentChapter?.selected_character_ids?.includes(c.id));
 
@@ -322,6 +329,53 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
       setIsSummarizing(false);
     }
   };
+
+  // 長時記憶第 3 階段：深海打撈歷史情節
+  const handleFetchRagScenes = async (hintOverride?: string) => {
+    if (!currentChapter || currentChapter.chapter_number <= 1) {
+      setRecalledScenes([]);
+      return;
+    }
+    setIsLoadingRag(true);
+    try {
+      const scenes = await api.queryRagScenes({
+        novel_id: novel.id,
+        chapter_id: currentChapter.id,
+        hint: hintOverride !== undefined ? hintOverride : ragHint,
+        top_k: 4,
+      });
+      setRecalledScenes(scenes);
+    } catch (e: any) {
+      console.error('RAG 回撈失敗:', e);
+    } finally {
+      setIsLoadingRag(false);
+    }
+  };
+
+  const handleReindexRag = async () => {
+    if (!novel.id) return;
+    setIsReindexing(true);
+    try {
+      const res = await api.reindexNovelRag(novel.id);
+      alert(res.message || '已啟動向量索引庫重構');
+      setTimeout(() => {
+        handleFetchRagScenes();
+      }, 1000);
+    } catch (e: any) {
+      alert(e.message || '重構向量索引庫失敗');
+    } finally {
+      setIsReindexing(false);
+    }
+  };
+
+  // 當切換章節時，若 RAG 預覽打開則自動重撈
+  useEffect(() => {
+    if (showRagPreview && currentChapter && currentChapter.chapter_number > 1) {
+      handleFetchRagScenes();
+    } else if (!showRagPreview) {
+      setRecalledScenes([]);
+    }
+  }, [selectedChapId, showRagPreview]);
 
   const activeProvider = settings?.provider || 'openai';
   const activeModel = settings?.providers?.[activeProvider]?.model || settings?.model || 'gpt-4o';
@@ -476,7 +530,8 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
           novel_id: novel.id,
           chapter_id: currentChapter.id,
           target_words: targetWords,
-          custom_instruction: customPrompt
+          custom_instruction: customPrompt,
+          rag_hint: ragHint,
         },
         (chunk) => {
           if (!hasReceivedFirstChunk) {
@@ -536,7 +591,8 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
           chapter_id: currentChapter.id,
           current_content: currentChapter.content,
           instruction: continueInstruction,
-          target_words: 800
+          target_words: 800,
+          rag_hint: ragHint,
         },
         (chunk) => {
           if (!hasReceivedFirstChunk) {
@@ -873,6 +929,32 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                     </button>
                   )}
 
+                  {/* 長時記憶第 3 階段：RAG 歷史情節深海回撈 (當有前置歷史章節時顯示) */}
+                  {precedingChapters.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !showRagPreview;
+                        setShowRagPreview(next);
+                        if (next && recalledScenes.length === 0) {
+                          handleFetchRagScenes();
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition ${
+                        showRagPreview 
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm shadow-emerald-500/20' 
+                          : recalledScenes.length > 0
+                            ? 'bg-slate-900/90 text-emerald-400 border-emerald-500/30 hover:border-emerald-500/60 hover:text-emerald-300'
+                            : 'bg-slate-900/90 text-emerald-400/80 border-emerald-500/30 hover:border-emerald-500/60 hover:text-emerald-300'
+                      }`}
+                      title="查看或檢索本章寫作時 AI 將自動回撈的歷史章節對白、誓約與微觀細節 (RAG)"
+                    >
+                      <Database className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>歷史回撈 (RAG{recalledScenes.length > 0 ? `·${recalledScenes.length}段` : ''})</span>
+                      {showRagPreview ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                  )}
+
                   <select
                     value={targetWords}
                     disabled={isGenerating || isContinuing}
@@ -1039,6 +1121,109 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {/* 長時記憶第 3 階段：RAG 歷史深海回撈預覽展開面板 */}
+              {showRagPreview && precedingChapters.length > 0 && (
+                <div className="p-3.5 bg-slate-950/95 border border-emerald-500/40 rounded-xl space-y-3 text-xs animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="font-semibold text-emerald-200">
+                        歷史情節深海回撈 (RAG 語意檢索，前置歷史候選共 {precedingChapters.length} 章)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-400">
+                        💡 依據語意相似度與角色共現，自動撈取昔日細節呼應當前劇情
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleReindexRag}
+                        disabled={isReindexing}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-slate-900 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:border-emerald-500/60 transition disabled:opacity-50"
+                        title="若手動修改了大量歷史章節正文，可點此重建全書向量索引庫"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isReindexing ? 'animate-spin' : ''}`} />
+                        <span>{isReindexing ? '重構中...' : '重構向量索引'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 搜尋線索輸入列 */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={ragHint}
+                      onChange={(e) => setRagHint(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleFetchRagScenes();
+                        }
+                      }}
+                      placeholder="自訂打撈線索（例如：艾莉絲在神殿許下的諾言、某件舊遺物的線索...）"
+                      className="flex-1 px-3 py-1.5 bg-slate-900 border border-emerald-500/20 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleFetchRagScenes()}
+                      disabled={isLoadingRag}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/40 text-xs font-medium transition disabled:opacity-50 shrink-0"
+                    >
+                      {isLoadingRag ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                      <span>{isLoadingRag ? '打撈中...' : '深海打撈'}</span>
+                    </button>
+                  </div>
+
+                  {/* 打撈片段列表 */}
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {isLoadingRag ? (
+                      <div className="py-8 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                        <span>正在穿梭全書前置歷史章節進行語意深海回撈...</span>
+                      </div>
+                    ) : recalledScenes.length > 0 ? (
+                      recalledScenes.map((scene) => (
+                        <div
+                          key={scene.id}
+                          className="p-2.5 bg-slate-900/90 border border-emerald-500/30 rounded-lg space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-emerald-300 text-xs">
+                                📌 第 {scene.chapter_number} 章《{scene.chapter_title}》
+                              </span>
+                              {scene.characters && scene.characters.length > 0 && (
+                                <span className="px-1.5 py-0.2 rounded text-[10px] bg-slate-800 text-slate-400">
+                                  {scene.characters.join('、')}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[10px]">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">
+                                相關度 {(scene.score * 100).toFixed(0)}%
+                              </span>
+                              <span className="text-slate-400">
+                                {scene.reason}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-slate-300 text-[11px] leading-relaxed bg-slate-950/60 p-2 rounded border border-slate-800/80 font-serif">
+                            「{scene.text}」
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="py-6 text-center text-slate-500 text-xs space-y-1">
+                        <p>目前尚未撈取到強烈呼應的歷史片段</p>
+                        <p className="text-[11px] text-slate-600">
+                          可於上方輸入自訂線索後點擊「深海打撈」，或在創作時由 AI 依本章大綱全自動深海打撈
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
