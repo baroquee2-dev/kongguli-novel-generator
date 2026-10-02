@@ -13,7 +13,7 @@ from app.models import (
     AISettings, Novel, Location, Character, Chapter,
     GenerateOutlineRequest, GenerateLocationsRequest,
     GenerateCharactersRequest, GenerateChapterRequest,
-    ContinueWritingRequest
+    ContinueWritingRequest, GenerateChapterSummaryRequest
 )
 from app.config import get_settings, save_settings, UPLOADS_DIR
 from app.db import (
@@ -446,6 +446,66 @@ async def api_ai_continue_writing(req: ContinueWritingRequest):
         raise HTTPException(status_code=500, detail=f"續寫失敗: {str(e)}")
 
 
+def build_timeline_context(novel: Novel, current_chapter_id: str) -> tuple[str, str]:
+    """
+    第一階段長時記憶：構建全書前情大事記時間線 (Timeline Chain) 與直前章節結尾銜接點 (Immediate Transition)
+    """
+    sorted_chaps = sorted(novel.chapters, key=lambda c: c.chapter_number)
+    curr_idx = next((i for i, c in enumerate(sorted_chaps) if c.id == current_chapter_id), 0)
+    
+    if curr_idx <= 0:
+        return ("", "")
+        
+    char_map = {c.id: c.name for c in novel.characters if c.id}
+    timeline_entries = []
+    
+    # 取當前章節之前的所有歷史章節 (0 到 curr_idx - 1)
+    for c in sorted_chaps[:curr_idx]:
+        synopsis = ""
+        if c.summary and c.summary.strip():
+            synopsis = c.summary.strip()
+        elif c.outline and c.outline.strip():
+            synopsis = f"【本章大綱推進】{c.outline.strip()}"
+        elif c.content and c.content.strip():
+            clean_c = c.content.strip().replace("\n", " ")
+            synopsis = clean_c[:150] + "..." if len(clean_c) > 150 else clean_c
+        else:
+            synopsis = "（情節順利推展）"
+            
+        cast = [char_map[cid] for cid in c.selected_character_ids if cid in char_map]
+        cast_str = f" [登場角色: {', '.join(cast)}]" if cast else ""
+        
+        timeline_entries.append(
+            f"* 第 {c.chapter_number} 章《{c.title}》{cast_str}：\n  {synopsis}"
+        )
+        
+    timeline_text = (
+        f"【★★★★★ 長時記憶：全書前情大事記時間線 (Story Timeline) ★★★★★】\n"
+        f"（以下是自第 1 章至第 {sorted_chaps[curr_idx-1].chapter_number} 章已經歷的所有前情大事件與因果脈絡，請嚴格前後呼應，杜絕矛盾吃書）：\n\n"
+        + "\n\n".join(timeline_entries)
+        + "\n\n"
+    )
+    
+    # 直前上一章的詳細結尾銜接點 (Immediate Transition)
+    prev_chap = sorted_chaps[curr_idx - 1]
+    prev_tail = ""
+    if prev_chap.content and prev_chap.content.strip():
+        content_stripped = prev_chap.content.strip()
+        prev_tail = content_stripped[-500:] if len(content_stripped) > 500 else content_stripped
+    elif prev_chap.summary:
+        prev_tail = prev_chap.summary
+    else:
+        prev_tail = prev_chap.outline or "前章順利落幕"
+        
+    immediate_context = (
+        f"【直前章節（第 {prev_chap.chapter_number} 章 《{prev_chap.title}》）最新進展與正文結尾銜接點】：\n"
+        f"...\n{prev_tail}\n"
+        f"（重要：本章正文開頭請自然流暢地緊密接續上述情境與人物動態，展開本章新的衝突與冒險）\n\n"
+    )
+    
+    return (timeline_text, immediate_context)
+
+
 # ==================== 5. SSE 串流創作 API (打字機即時顯示) ====================
 
 @app.post("/api/ai/generate-chapter-stream")
@@ -485,13 +545,8 @@ async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
     else:
         locs_text = "（由 AI 依劇情流動自由發揮所屬場景）"
 
-    previous_context = ""
-    sorted_chaps = sorted(novel.chapters, key=lambda c: c.chapter_number)
-    curr_idx = next((i for i, c in enumerate(sorted_chaps) if c.id == chapter.id), 0)
-    if curr_idx > 0:
-        prev_chap = sorted_chaps[curr_idx - 1]
-        prev_summary = prev_chap.summary or (prev_chap.content[-300:] if len(prev_chap.content) > 300 else prev_chap.content)
-        previous_context = f"【上一章（第{prev_chap.chapter_number}章 《{prev_chap.title}》）情節回顧/結尾】：\n{prev_summary}\n"
+    # 長時記憶：全書前情時間線 + 直前章節銜接
+    timeline_text, immediate_context = build_timeline_context(novel, chapter.id)
 
     target_words = req.target_words or 2000
     global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
@@ -513,8 +568,7 @@ async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
 核心世界觀：{novel.world_background}
 主要劇情主線：{novel.main_plot}
 
-{previous_context}
-【當前章節資訊】
+{timeline_text}{immediate_context}【當前章節創作任務】
 章節標題：{chapter.title} (第 {chapter.chapter_number} 章)
 本章核心大綱與目標事件：
 {chapter.outline or "請根據主線推進引人入勝的關鍵事件與衝突"}
@@ -578,10 +632,13 @@ async def api_ai_continue_writing_stream(req: ContinueWritingRequest):
 
 """
 
+    timeline_text, _ = build_timeline_context(novel, req.chapter_id)
+
     user_prompt = f"""{style_header}小說名稱：《{novel.title}》
 風格基調：{novel.tone}
 章節標題：{chapter.title if chapter else "未命名"}
-【當前已有正文的結尾部分】：
+
+{timeline_text}【當前已有正文的結尾部分】：
 ...
 {prev_text}
 
@@ -615,4 +672,50 @@ async def api_ai_continue_writing_stream(req: ContinueWritingRequest):
             "X-Accel-Buffering": "no"
         }
     )
+
+
+# ==================== 6. 長時記憶：AI 提煉章節紀要小結 API ====================
+
+@app.post("/api/ai/generate-chapter-summary")
+async def api_ai_generate_chapter_summary(req: GenerateChapterSummaryRequest):
+    novel = get_novel(req.novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="找不到小說專案")
+        
+    chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="找不到指定章節")
+        
+    content_to_summarize = (chapter.content or "").strip()
+    if not content_to_summarize:
+        raise HTTPException(status_code=400, detail="本章尚無正文內容，請先撰寫或由 AI 生成正文後再提煉小結")
+        
+    sample_text = content_to_summarize[:6000]
+    global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
+    sys_prompt = prompts.get_summary_prompt(global_style)
+    
+    user_prompt = f"""請為小說《{novel.title}》的第 {chapter.chapter_number} 章《{chapter.title}》提煉本章大事紀事小結：
+
+【本章大綱】：
+{chapter.outline or "無"}
+
+【本章正文節錄】：
+{sample_text}
+
+請提煉出 60~120 字的本章大事紀事小結（交代核心推進、重要人物關係與關鍵伏筆）："""
+
+    try:
+        summary = await AIService.call_llm(
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
+            temperature=0.3,
+            max_tokens=300
+        )
+        clean_summary = summary.strip().replace("\n", " ")
+        chapter.summary = clean_summary
+        save_novel(novel)
+        return {"summary": clean_summary, "novel": novel}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"提煉小結失敗: {str(e)}")
+
 

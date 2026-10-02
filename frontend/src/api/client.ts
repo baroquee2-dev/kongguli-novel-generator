@@ -323,4 +323,19 @@ export const api = {
       throw new Error('AI 連線已結束，但未接收到任何文字（AI 回傳空白或未響應）');
     }
   },
+
+  // 長時記憶：AI 提煉章節小結
+  async generateChapterSummary(data: { novel_id: string; chapter_id: string }): Promise<{ summary: string; novel: Novel }> {
+    const res = await fetch(`${API_BASE}/ai/generate-chapter-summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: '提煉章節小結失敗' }));
+      throw new Error(err.detail || '提煉章節小結失敗');
+    }
+    return res.json();
+  },
 };
+

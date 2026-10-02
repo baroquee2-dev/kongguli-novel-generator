@@ -4,7 +4,7 @@ import {
   FileText, Plus, Trash2, Sparkles, Play, Users, MapPin, 
   PenTool, CheckSquare, Square, CornerDownLeft, Sparkle, StopCircle, User, X,
   AlertTriangle, ShieldAlert, KeyRound, RefreshCw, Loader2, Settings,
-  Eye, Edit3, BookOpen, Type
+  Eye, Edit3, BookOpen, Type, History, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -236,8 +236,38 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [continueInstruction, setContinueInstruction] = useState<string>('順著當前情節脈絡自然生動地繼續寫下去');
 
+  // 長時記憶：AI 提煉章節小結與時間線預覽狀態
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showTimelinePreview, setShowTimelinePreview] = useState(false);
+
   const currentChapter = novel.chapters.find(c => c.id === selectedChapId) || novel.chapters[0];
   const selectedCharacters = novel.characters.filter(c => currentChapter?.selected_character_ids?.includes(c.id));
+
+  // 計算當前章節之前的歷史章節 (長時記憶鏈節點)
+  const sortedChapters = [...novel.chapters].sort((a, b) => a.chapter_number - b.chapter_number);
+  const currentChapterIdx = sortedChapters.findIndex(c => c.id === currentChapter?.id);
+  const precedingChapters = currentChapterIdx > 0 ? sortedChapters.slice(0, currentChapterIdx) : [];
+
+  // 一鍵 AI 提煉本章小結
+  const handleGenerateSummary = async () => {
+    if (!currentChapter) return;
+    if (!currentChapter.content?.trim()) {
+      alert('本章尚未有正文內容，請先撰寫或由 AI 生成正文後再提煉小結。');
+      return;
+    }
+    setIsSummarizing(true);
+    try {
+      const res = await api.generateChapterSummary({
+        novel_id: novel.id,
+        chapter_id: currentChapter.id,
+      });
+      onChange(res.novel);
+    } catch (e: any) {
+      alert(e.message || '提煉小結失敗');
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
 
   const activeProvider = settings?.provider || 'openai';
   const activeModel = settings?.providers?.[activeProvider]?.model || settings?.model || 'gpt-4o';
@@ -751,6 +781,24 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                     )}
                   </div>
 
+                  {/* 長時記憶鏈預覽切換 (當有前置章節時顯示) */}
+                  {precedingChapters.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTimelinePreview(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition ${
+                        showTimelinePreview 
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm shadow-amber-500/20' 
+                          : 'bg-slate-900/90 text-amber-400/80 border-amber-500/30 hover:border-amber-500/60 hover:text-amber-300'
+                      }`}
+                      title="查看本章寫作時 AI 將自動參考的全書長時記憶鏈 (歷史章節時間線)"
+                    >
+                      <History className="w-3.5 h-3.5 text-amber-400" />
+                      <span>長時記憶鏈 ({precedingChapters.length}章)</span>
+                      {showTimelinePreview ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                  )}
+
                   <select
                     value={targetWords}
                     disabled={isGenerating || isContinuing}
@@ -795,6 +843,63 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                 placeholder="選填：為本章生成增加額外指示 (例如：加強打鬥動作描寫、讓反派展現威嚴冷酷...)"
                 className="w-full px-3 py-1.5 bg-slate-950/80 border border-purple-500/20 rounded-xl text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-purple-500 disabled:opacity-50"
               />
+
+              {/* 長時記憶鏈預覽展開面板 */}
+              {showTimelinePreview && precedingChapters.length > 0 && (
+                <div className="p-3 bg-slate-950/95 border border-amber-500/40 rounded-xl space-y-2.5 text-xs animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <History className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="font-semibold text-amber-200">
+                        全書前情時間線 (長時記憶鏈，共 {precedingChapters.length} 章)
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      💡 生成時 AI 會按時間線讀取前情，杜絕情節遺忘與設定吃書
+                    </span>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {precedingChapters.map((ch) => {
+                      const hasSummary = Boolean(ch.summary?.trim());
+                      const hasOutline = Boolean(ch.outline?.trim());
+                      const hasContent = Boolean(ch.content?.trim());
+                      const statusBadge = hasSummary ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">
+                          精煉小結
+                        </span>
+                      ) : hasOutline ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium">
+                          使用大綱
+                        </span>
+                      ) : hasContent ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-sky-500/20 text-sky-400 border border-sky-500/30 font-medium">
+                          正文節錄
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-500">
+                          無內容
+                        </span>
+                      );
+
+                      const displayText = ch.summary?.trim() || ch.outline?.trim() || (ch.content ? ch.content.slice(0, 100) + '...' : '（暫無記載）');
+
+                      return (
+                        <div key={ch.id} className="p-2.5 bg-slate-900/80 border border-slate-800/80 rounded-lg space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-200 text-xs">
+                              第 {ch.chapter_number} 章：{ch.title}
+                            </span>
+                            {statusBadge}
+                          </div>
+                          <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-2">
+                            {displayText}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
 
@@ -1293,18 +1398,53 @@ export const ChaptersTab: React.FC<Props> = ({ novel, onChange, settings, onOpen
                   )}
                 </div>
 
-                {/* 章節小結 */}
-                <div className="pt-2">
-                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                    本章情節小結 (選填，供後續章節銜接與前情回顧參考)
-                  </label>
-                  <input
-                    type="text"
+                {/* 本章劇情紀事小結 (長時記憶鏈節點) */}
+                <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                        <History className="w-3.5 h-3.5 text-amber-400" />
+                        <span>本章劇情紀事小結 (長時記憶鏈節點)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        後續所有章節生成時，AI 都會讀取這份小結作為全書前情時間線，確保情節不吃書、關係不斷層。
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleGenerateSummary}
+                      disabled={isSummarizing || isGenerating || !currentChapter.content?.trim()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600/80 to-purple-600/80 hover:from-amber-600 hover:to-purple-600 text-white font-medium text-xs shadow-md shadow-amber-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                      title={!currentChapter.content?.trim() ? '請先撰寫或由 AI 生成正文後再提煉小結' : '由 AI 自動閱讀本章正文，提煉 60~120 字關鍵進展'}
+                    >
+                      {isSummarizing ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                      )}
+                      <span>{isSummarizing ? 'AI 提煉中...' : '✨ AI 一鍵提煉小結'}</span>
+                    </button>
+                  </div>
+
+                  <textarea
+                    rows={3}
                     value={currentChapter.summary || ''}
                     onChange={(e) => handleUpdateChapter({ summary: e.target.value })}
-                    placeholder="總結本章發生的關鍵進展 (例如：以太之心核心失竊，兩人決定前往下界)"
-                    className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-pink-500"
+                    placeholder="點擊上方「AI 一鍵提煉」或自行手寫：總結本章發生的關鍵進展、人物關係轉折、重要線索或物品變動（例如：主角在廢墟中啟動以太核心，擊退暗夜巡者，並與神秘少女結盟前往下界...）"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 rounded-xl text-xs text-slate-200 placeholder-slate-600 leading-relaxed resize-y focus:outline-none transition"
                   />
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                    <span>
+                      {currentChapter.summary?.trim() ? (
+                        <span className="text-emerald-400/80 font-medium">✓ 已建立記憶節點 ({currentChapter.summary.trim().length} 字)</span>
+                      ) : (
+                        <span className="text-slate-500">⚪ 尚未填寫小結（AI 將回退讀取本章大綱作為時間線）</span>
+                      )}
+                    </span>
+                    <span>建議長度：60 ~ 150 字</span>
+                  </div>
                 </div>
               </div>
             </div>

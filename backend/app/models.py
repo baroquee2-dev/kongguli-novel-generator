@@ -118,3 +118,8 @@ class ContinueWritingRequest(BaseModel):
     current_content: str
     instruction: Optional[str] = "順著當前情節繼續生動地描寫下去"
     target_words: Optional[int] = 800
+
+class GenerateChapterSummaryRequest(BaseModel):
+    novel_id: str
+    chapter_id: str
+
