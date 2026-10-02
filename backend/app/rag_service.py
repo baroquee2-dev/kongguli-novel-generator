@@ -119,9 +119,35 @@ class RAGService:
                             embeddings.append(vec)
                         return embeddings
             except Exception as e:
-                print(f"[RAG] OpenAI Embedding failed, falling back to keyword similarity: {e}")
+                print(f"[RAG] OpenAI Embedding failed: {e}")
 
-        # 2. Gemini 向量模型 (text-embedding-004)
+        # 2. OpenRouter 向量模型 (openai/text-embedding-3-small)
+        elif provider == "openrouter" and api_key:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.post(
+                        "https://openrouter.ai/api/v1/embeddings",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "HTTP-Referer": "http://localhost:5173",
+                            "X-Title": "KongGuLi Novel Generator"
+                        },
+                        json={
+                            "input": texts,
+                            "model": "openai/text-embedding-3-small"
+                        }
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        embeddings = []
+                        for item in data.get("data", []):
+                            vec = np.array(item["embedding"], dtype=np.float32)
+                            embeddings.append(vec)
+                        return embeddings
+            except Exception as e:
+                print(f"[RAG] OpenRouter Embedding failed, will check auxiliary provider or local fallback: {e}")
+
+        # 3. Gemini 向量模型 (text-embedding-004)
         elif provider == "gemini" and api_key:
             try:
                 embeddings = []
@@ -143,9 +169,9 @@ class RAGService:
                             embeddings.append(None)
                     return embeddings
             except Exception as e:
-                print(f"[RAG] Gemini Embedding failed, falling back to keyword similarity: {e}")
+                print(f"[RAG] Gemini Embedding failed: {e}")
 
-        # 3. Custom / Ollama / OpenAI-compatible /v1/embeddings
+        # 4. Custom / Ollama / OpenAI-compatible /v1/embeddings
         elif base_url and ("/v1" in base_url or "localhost" in base_url or "127.0.0.1" in base_url):
             try:
                 embed_url = base_url.rstrip("/")
@@ -173,9 +199,36 @@ class RAGService:
                             embeddings.append(vec)
                         return embeddings
             except Exception as e:
-                print(f"[RAG] Custom/Ollama Embedding failed, falling back: {e}")
+                print(f"[RAG] Custom/Ollama Embedding failed: {e}")
 
-        # 無可用向量 API 或呼叫失敗時，返回全 None (系統將自動以關鍵字與角色共現檢索處理)
+        # 5. 智慧輔助回退：若主寫作模型走 OpenRouter/Claude，但設定檔曾填過免費的 Gemini Key，優先借用免費的 Gemini 向量
+        gemini_cfg = settings.providers.get("gemini") if settings.providers else None
+        if gemini_cfg and gemini_cfg.api_key and provider != "gemini":
+            try:
+                g_key = gemini_cfg.api_key
+                embeddings = []
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    for text in texts:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={g_key}"
+                        resp = await client.post(
+                            url,
+                            json={
+                                "model": "models/text-embedding-004",
+                                "content": {"parts": [{"text": text[:2000]}]}
+                            }
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            vec_vals = data.get("embedding", {}).get("values", [])
+                            embeddings.append(np.array(vec_vals, dtype=np.float32) if vec_vals else None)
+                        else:
+                            embeddings.append(None)
+                if any(v is not None for v in embeddings):
+                    return embeddings
+            except Exception as e:
+                print(f"[RAG] Auxiliary Gemini Embedding fallback failed: {e}")
+
+        # 無可用向量 API 或呼叫失敗時，返回全 None (系統將自動以本地純演算法：BM25關鍵字 + 角色共現矩陣處理)
         return [None] * len(texts)
 
     @staticmethod
