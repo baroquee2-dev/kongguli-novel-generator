@@ -3,7 +3,7 @@ import type { Novel, NovelListItem } from '../types';
 import { 
   BookOpen, ArrowLeft, List, Library, Clock, ChevronRight, ChevronLeft, 
   PenTool, Compass, Search, Flame, Dices, Layers, FileText,
-  SlidersHorizontal
+  SlidersHorizontal, User, Users
 } from 'lucide-react';
 
 interface Props {
@@ -133,6 +133,21 @@ export const FrontstageView: React.FC<Props> = ({
     if (!sortedChapters) return 0;
     return sortedChapters.reduce((acc, c) => acc + (c.word_count || 0), 0);
   }, [sortedChapters]);
+
+  // 登場角色伴讀側欄顯示開關 (預設保持常駐顯示)
+  const [showCharacterSidebar, setShowCharacterSidebar] = useState<boolean>(true);
+
+  // 本章登場或全書伴讀角色清單 (優先取本章勾選角色，若無則展示全書主要角色)
+  const chapterCharacters = useMemo(() => {
+    if (!currentNovel?.characters || currentNovel.characters.length === 0) return [];
+    if (currentReadingChapter?.selected_character_ids && currentReadingChapter.selected_character_ids.length > 0) {
+      const selected = currentNovel.characters.filter(c => 
+        currentReadingChapter.selected_character_ids.includes(c.id)
+      );
+      if (selected.length > 0) return selected;
+    }
+    return currentNovel.characters;
+  }, [currentNovel?.characters, currentReadingChapter?.selected_character_ids]);
 
   // 所有分類清單 (去重)
   const allGenres = useMemo(() => {
@@ -971,6 +986,78 @@ export const FrontstageView: React.FC<Props> = ({
               </div>
             </div>
 
+            {/* 主要登場角色名鑑 (角色立繪展示) */}
+            {currentNovel.characters && currentNovel.characters.length > 0 && (
+              <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-100">主要登場角色名鑑</h2>
+                      <p className="text-xs text-slate-400">本書核心人物陣容與角色立繪設定</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono text-indigo-400 bg-indigo-950/40 px-3 py-1 rounded-full border border-indigo-500/30">
+                    共 {currentNovel.characters.length} 位人物
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5 sm:gap-4">
+                  {currentNovel.characters.map((char) => (
+                    <div
+                      key={char.id}
+                      className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden shadow-lg group hover:border-purple-500/50 hover:scale-[1.02] transition duration-300 flex flex-col justify-between"
+                    >
+                      {/* 角色立繪圖卡 */}
+                      {char.avatar_url ? (
+                        <div className="relative aspect-[3/4] w-full overflow-hidden bg-slate-950">
+                          <img
+                            src={char.avatar_url}
+                            alt={char.name}
+                            className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent pointer-events-none" />
+                          <div className="absolute top-2 left-2">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/70 text-purple-300 border border-purple-500/30 backdrop-blur-sm shadow">
+                              {char.role}
+                            </span>
+                          </div>
+                          <div className="absolute bottom-2 inset-x-2 text-left">
+                            <h4 className="text-sm font-bold text-white drop-shadow truncate">{char.name}</h4>
+                            {(char.gender || char.age) && (
+                              <span className="text-[10px] text-slate-300 block truncate">
+                                {char.gender} {char.age ? `· ${char.age}歲` : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 text-center aspect-[3/4] flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 relative">
+                          <div className="w-12 h-12 rounded-xl bg-purple-900/30 border border-purple-500/30 flex items-center justify-center text-purple-300 mb-1">
+                            <User className="w-6 h-6" />
+                          </div>
+                          <h4 className="text-sm font-bold text-white truncate max-w-full">{char.name}</h4>
+                          <span className="text-[10px] text-purple-400">{char.role}</span>
+                          {(char.gender || char.age) && (
+                            <span className="text-[9px] text-slate-500 mt-0.5">
+                              {char.gender} {char.age ? `· ${char.age}歲` : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 簡短外貌與性格摘錄 */}
+                      <div className="p-2.5 bg-black/40 border-t border-white/5 text-[10px] text-slate-400 text-left line-clamp-2">
+                        {char.appearance || char.profile || '暫無外貌描述'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* 完整章節目錄大卡片 */}
             <section className="space-y-4">
               <div className="flex items-center justify-between">
@@ -1132,85 +1219,235 @@ export const FrontstageView: React.FC<Props> = ({
                 >
                   {readerWidth === 'normal' ? '適中' : readerWidth === 'wide' ? '寬幅' : '精簡'}
                 </button>
+
+                {/* 登場角色伴讀立繪開關 */}
+                {chapterCharacters.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCharacterSidebar(!showCharacterSidebar)}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition flex items-center gap-1.5 ${
+                      showCharacterSidebar
+                        ? 'bg-purple-600/30 text-purple-300 border-purple-500/50 shadow-sm'
+                        : 'border-current/20 hover:opacity-80'
+                    }`}
+                    title="切換側邊角色立繪伴讀欄（保持顯示）"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">角色立繪 ({chapterCharacters.length})</span>
+                    <span className="sm:hidden">角色</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* 正文主要閱讀畫布 */}
-            <article className={`${readerWidthClasses} mx-auto ${readerContainerClasses} rounded-3xl p-6 sm:p-12 lg:p-16 border shadow-2xl transition-all duration-200`}>
-              {/* 章節標題 */}
-              <div className="text-center space-y-3 pb-8 sm:pb-12 border-b border-current/10">
-                <div className="inline-block px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider opacity-75 border border-current/20">
-                  第 {currentReadingChapter.chapter_number} 章 · 全書第 {currentChapterIndex + 1} / {sortedChapters.length} 回
-                </div>
-                <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
-                  {currentReadingChapter.title}
-                </h1>
-                <div className="text-xs opacity-60 font-mono">
-                  {currentReadingChapter.word_count || currentReadingChapter.content.length} 字
-                </div>
-              </div>
-
-              {/* 正文內容段落 */}
-              <div 
-                className={`pt-8 sm:pt-12 leading-loose tracking-wide select-text space-y-6 ${
-                  readerFontFamily === 'serif' ? 'font-serif' : 'font-sans'
-                }`}
-                style={{ fontSize: `${readerFontSize}px` }}
-              >
-                {currentReadingChapter.content && currentReadingChapter.content.trim() ? (
-                  currentReadingChapter.content.split('\n\n').map((paragraph, idx) => {
-                    const trimmed = paragraph.trim();
-                    if (!trimmed) return null;
-                    return (
-                      <p key={idx} className="indent-8 text-justify">
-                        {trimmed}
-                      </p>
-                    );
-                  })
-                ) : (
-                  <div className="py-24 text-center space-y-3 opacity-60">
-                    <p className="text-base font-serif">（本章正文正在由作者構思創作中，請稍候再讀）</p>
+            {/* 閱讀主區域：故事正文畫布 + 登場角色立繪伴讀欄 (常駐側欄) */}
+            <div className="flex flex-col lg:flex-row items-start justify-center gap-6 xl:gap-8 w-full">
+              {/* 正文主要閱讀畫布 */}
+              <article className={`flex-1 w-full ${readerWidthClasses} ${readerContainerClasses} rounded-3xl p-6 sm:p-10 lg:p-14 border shadow-2xl transition-all duration-200`}>
+                {/* 行動裝置端頂部：登場角色橫向滾動列 */}
+                {chapterCharacters.length > 0 && (
+                  <div className="lg:hidden pb-4 mb-4 border-b border-current/10">
+                    <div className="flex items-center gap-1.5 text-xs font-bold opacity-80 mb-2">
+                      <Users className="w-3.5 h-3.5 text-purple-400" />
+                      <span>本章登場角色 ({chapterCharacters.length})</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 custom-scrollbar">
+                      {chapterCharacters.map(char => (
+                        <div key={char.id} className="flex items-center gap-2 p-1.5 rounded-xl bg-black/30 border border-current/10 shrink-0">
+                          {char.avatar_url ? (
+                            <img src={char.avatar_url} alt={char.name} className="w-8 h-10 rounded-lg object-cover object-top shrink-0 shadow-sm" />
+                          ) : (
+                            <div className="w-8 h-10 rounded-lg bg-purple-900/40 border border-purple-500/30 flex items-center justify-center text-purple-300 font-bold text-xs shrink-0">
+                              {char.name[0]}
+                            </div>
+                          )}
+                          <div className="text-left pr-1 min-w-[60px]">
+                            <p className="text-xs font-bold leading-tight">{char.name}</p>
+                            <span className="text-[9px] opacity-75">{char.role}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
-              </div>
 
-              {/* 本章結尾翻頁導覽控制 */}
-              <div className="mt-16 pt-8 border-t border-current/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-                {prevChapter ? (
-                  <button
-                    type="button"
-                    onClick={() => setReadingChapterId(prevChapter.id)}
-                    className="w-full sm:w-auto flex items-center gap-2 px-4 py-2.5 rounded-xl border border-current/20 hover:bg-current/5 transition text-xs font-bold"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    <span className="truncate max-w-[160px]">上一章：{prevChapter.title}</span>
-                  </button>
-                ) : (
-                  <div className="text-xs opacity-40 px-4 py-2.5">本書開篇第 1 章</div>
-                )}
+                {/* 章節標題 */}
+                <div className="text-center space-y-3 pb-8 sm:pb-12 border-b border-current/10">
+                  <div className="inline-block px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider opacity-75 border border-current/20">
+                    第 {currentReadingChapter.chapter_number} 章 · 全書第 {currentChapterIndex + 1} / {sortedChapters.length} 回
+                  </div>
+                  <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
+                    {currentReadingChapter.title}
+                  </h1>
+                  <div className="text-xs opacity-60 font-mono">
+                    {currentReadingChapter.word_count || currentReadingChapter.content.length} 字
+                  </div>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => setViewMode('book_detail')}
-                  className="text-xs font-bold text-purple-400 hover:underline"
+                {/* 正文內容段落 */}
+                <div 
+                  className={`pt-8 sm:pt-12 leading-loose tracking-wide select-text space-y-6 ${
+                    readerFontFamily === 'serif' ? 'font-serif' : 'font-sans'
+                  }`}
+                  style={{ fontSize: `${readerFontSize}px` }}
                 >
-                  目錄總覽
-                </button>
+                  {currentReadingChapter.content && currentReadingChapter.content.trim() ? (
+                    currentReadingChapter.content.split('\n\n').map((paragraph, idx) => {
+                      const trimmed = paragraph.trim();
+                      if (!trimmed) return null;
+                      return (
+                        <p key={idx} className="indent-8 text-justify">
+                          {trimmed}
+                        </p>
+                      );
+                    })
+                  ) : (
+                    <div className="py-24 text-center space-y-3 opacity-60">
+                      <p className="text-base font-serif">（本章正文正在由作者構思創作中，請稍候再讀）</p>
+                    </div>
+                  )}
+                </div>
 
-                {nextChapter ? (
+                {/* 本章結尾翻頁導覽控制 */}
+                <div className="mt-16 pt-8 border-t border-current/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  {prevChapter ? (
+                    <button
+                      type="button"
+                      onClick={() => setReadingChapterId(prevChapter.id)}
+                      className="w-full sm:w-auto flex items-center gap-2 px-4 py-2.5 rounded-xl border border-current/20 hover:bg-current/5 transition text-xs font-bold"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span className="truncate max-w-[160px]">上一章：{prevChapter.title}</span>
+                    </button>
+                  ) : (
+                    <div className="text-xs opacity-40 px-4 py-2.5">本書開篇第 1 章</div>
+                  )}
+
                   <button
                     type="button"
-                    onClick={() => setReadingChapterId(nextChapter.id)}
-                    className="w-full sm:w-auto flex items-center justify-end gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition text-xs font-bold shadow-md"
+                    onClick={() => setViewMode('book_detail')}
+                    className="text-xs font-bold text-purple-400 hover:underline"
                   >
-                    <span className="truncate max-w-[160px]">下一章：{nextChapter.title}</span>
-                    <ChevronRight className="w-4 h-4" />
+                    目錄總覽
                   </button>
-                ) : (
-                  <div className="text-xs opacity-40 px-4 py-2.5">已是最新章節</div>
-                )}
-              </div>
-            </article>
+
+                  {nextChapter ? (
+                    <button
+                      type="button"
+                      onClick={() => setReadingChapterId(nextChapter.id)}
+                      className="w-full sm:w-auto flex items-center justify-end gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition text-xs font-bold shadow-md"
+                    >
+                      <span className="truncate max-w-[160px]">下一章：{nextChapter.title}</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <div className="text-xs opacity-40 px-4 py-2.5">已是最新章節</div>
+                  )}
+                </div>
+              </article>
+
+              {/* 🌟 登場角色立繪伴讀欄 (常駐於側邊，跟隨滾動保持顯示) */}
+              {showCharacterSidebar && chapterCharacters.length > 0 && (
+                <aside className="hidden lg:block w-72 xl:w-80 shrink-0 sticky top-20 self-start space-y-4 max-h-[calc(100vh-6rem)] overflow-y-auto custom-scrollbar p-1">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                        <Users className="w-3.5 h-3.5" />
+                      </div>
+                      <h3 className="text-xs font-bold tracking-wider uppercase text-purple-300">
+                        登場角色伴讀 ({chapterCharacters.length})
+                      </h3>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">常駐顯示</span>
+                  </div>
+
+                  <div className="space-y-3.5">
+                    {chapterCharacters.map((char) => (
+                      <div
+                        key={char.id}
+                        className={`rounded-2xl border overflow-hidden shadow-lg transition-all duration-300 group ${
+                          readerTheme === 'sepia'
+                            ? 'bg-[#f4e4c3] border-[#dec99f] text-[#2c2214]'
+                            : readerTheme === 'paper'
+                            ? 'bg-white border-stone-200 text-stone-900 shadow-sm'
+                            : 'bg-slate-900/90 border-white/10 text-white'
+                        }`}
+                      >
+                        {/* 角色立繪大圖 */}
+                        {char.avatar_url ? (
+                          <div className="relative aspect-[3/4] w-full overflow-hidden bg-slate-950">
+                            <img
+                              src={char.avatar_url}
+                              alt={char.name}
+                              className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent pointer-events-none" />
+                            <div className="absolute top-2.5 left-2.5">
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-black/75 text-purple-200 border border-white/20 backdrop-blur-sm shadow">
+                                {char.role || '主要角色'}
+                              </span>
+                            </div>
+                            <div className="absolute bottom-2.5 inset-x-3 text-left">
+                              <h4 className="text-base font-black text-white drop-shadow leading-tight">
+                                {char.name}
+                              </h4>
+                              {(char.gender || char.age) && (
+                                <span className="text-[10px] text-slate-300 font-sans block opacity-90 mt-0.5">
+                                  {char.gender && <span>{char.gender}</span>}
+                                  {char.gender && char.age && <span> · </span>}
+                                  {char.age && <span>{char.age}歲</span>}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-3.5 border-b border-current/10 flex items-center gap-3">
+                            <div className="w-12 h-14 rounded-xl bg-purple-900/30 border border-purple-500/30 flex items-center justify-center text-purple-300 shrink-0 font-bold text-base">
+                              {char.name[0] || '人'}
+                            </div>
+                            <div className="min-w-0 flex-1 text-left">
+                              <div className="flex items-center gap-1.5">
+                                <h4 className="font-bold text-sm truncate">{char.name}</h4>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                                  {char.role}
+                                </span>
+                              </div>
+                              {(char.gender || char.age) && (
+                                <p className="text-[10px] opacity-70 mt-0.5">
+                                  {char.gender} {char.age ? `· ${char.age}歲` : ''}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 角色外貌與性格簡介 */}
+                        {(char.appearance || char.profile) && (
+                          <div className="p-3 space-y-1.5 text-xs text-left bg-black/10 border-t border-current/10">
+                            {char.appearance && (
+                              <div className="space-y-0.5">
+                                <span className="text-[9px] font-bold text-purple-400 uppercase tracking-wider block">外貌特徵</span>
+                                <p className="text-[11px] opacity-90 leading-snug line-clamp-2 hover:line-clamp-none transition-all cursor-pointer" title={char.appearance}>
+                                  {char.appearance}
+                                </p>
+                              </div>
+                            )}
+                            {char.profile && (
+                              <div className="space-y-0.5 pt-1 border-t border-current/10">
+                                <span className="text-[9px] font-bold opacity-60 uppercase tracking-wider block">性格身世</span>
+                                <p className="text-[10px] opacity-80 leading-snug line-clamp-2 hover:line-clamp-none transition-all cursor-pointer" title={char.profile}>
+                                  {char.profile}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </aside>
+              )}
+            </div>
           </div>
         )}
       </main>
