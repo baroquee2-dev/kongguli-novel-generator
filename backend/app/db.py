@@ -12,6 +12,8 @@ def list_novels() -> List[dict]:
         try:
             with open(file, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                chapters = data.get("chapters", [])
+                total_word_count = sum(c.get("word_count") or len(c.get("content", "").replace(" ", "").replace("\n", "")) for c in chapters)
                 novels.append({
                     "id": data.get("id"),
                     "title": data.get("title"),
@@ -21,7 +23,8 @@ def list_novels() -> List[dict]:
                     "cover_url": data.get("cover_url", ""),
                     "locations_count": len(data.get("locations", [])),
                     "characters_count": len(data.get("characters", [])),
-                    "chapters_count": len(data.get("chapters", [])),
+                    "chapters_count": len(chapters),
+                    "total_word_count": total_word_count,
                     "lore_items_count": len(data.get("lore_items", [])),
                     "updated_at": data.get("updated_at")
                 })

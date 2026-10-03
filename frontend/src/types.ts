@@ -90,6 +90,7 @@ export interface NovelListItem {
   locations_count: number;
   characters_count: number;
   chapters_count: number;
+  total_word_count?: number;
   lore_items_count?: number;
   updated_at?: string;
 }
