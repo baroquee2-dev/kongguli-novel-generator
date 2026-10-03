@@ -164,11 +164,27 @@ export const FrontstageView: React.FC<Props> = ({
                         n.id === currentNovel?.id ? 'text-purple-300 font-bold bg-purple-600/10' : 'text-slate-300'
                       }`}
                     >
-                      <div className="truncate pr-2">
-                        <p className="truncate font-medium">{n.title}</p>
-                        <p className="text-[10px] text-slate-500 font-normal">
-                          {n.genre} · {n.tone}
-                        </p>
+                      <div className="flex items-center gap-2.5 truncate pr-2 min-w-0">
+                        {n.cover_url ? (
+                          <img
+                            src={n.cover_url}
+                            alt=""
+                            className="w-7 h-9 rounded object-cover border border-slate-700/80 shrink-0 shadow-sm"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-7 h-9 rounded bg-gradient-to-br from-purple-800 to-slate-800 flex items-center justify-center text-[9px] text-purple-200 border border-slate-700/80 shrink-0 font-bold">
+                            書
+                          </div>
+                        )}
+                        <div className="truncate">
+                          <p className="truncate font-medium">{n.title}</p>
+                          <p className="text-[10px] text-slate-500 font-normal">
+                            {n.genre} · {n.tone}
+                          </p>
+                        </div>
                       </div>
                       <span className="text-[11px] text-purple-400/80 shrink-0 font-mono">
                         {n.chapters_count} 章
@@ -411,23 +427,42 @@ export const FrontstageView: React.FC<Props> = ({
 
               <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
                 {/* 精緻立體書封模型 */}
-                <div className="w-44 h-60 sm:w-52 sm:h-72 rounded-2xl bg-gradient-to-tr from-purple-800 via-indigo-700 to-pink-600 p-1 shadow-2xl shadow-purple-950/60 shrink-0 mx-auto md:mx-0 flex flex-col justify-between overflow-hidden group hover:scale-[1.02] transition duration-300">
-                  <div className="h-full w-full rounded-xl bg-slate-950/90 p-4 flex flex-col justify-between border border-white/10">
-                    <div className="space-y-2">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                        {currentNovel.genre || '長篇小說'}
-                      </span>
-                      <h2 className="text-lg font-black text-white leading-tight line-clamp-3">
-                        {currentNovel.title}
-                      </h2>
+                <div className="w-44 h-60 sm:w-52 sm:h-72 rounded-2xl bg-gradient-to-tr from-purple-800 via-indigo-700 to-pink-600 p-1 shadow-2xl shadow-purple-950/60 shrink-0 mx-auto md:mx-0 overflow-hidden group hover:scale-[1.02] transition duration-300 relative">
+                  {currentNovel.cover_url ? (
+                    <div className="h-full w-full rounded-xl overflow-hidden relative border border-white/15 bg-slate-950 shadow-inner group">
+                      <img
+                        src={currentNovel.cover_url}
+                        alt={currentNovel.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      {/* 書脊立體光影陰影效果 */}
+                      <div className="absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-black/60 via-black/20 to-transparent pointer-events-none" />
+                      <div className="absolute inset-y-0 left-3 w-[1px] bg-white/20 pointer-events-none" />
+                      {/* 底部微漸層文字標籤 */}
+                      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-none flex items-end p-3">
+                        <span className="text-[11px] text-white/95 font-medium truncate drop-shadow-md">
+                          {currentNovel.title}
+                        </span>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="h-full w-full rounded-xl bg-slate-950/90 p-4 flex flex-col justify-between border border-white/10">
+                      <div className="space-y-2">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          {currentNovel.genre || '長篇小說'}
+                        </span>
+                        <h2 className="text-lg font-black text-white leading-tight line-clamp-3">
+                          {currentNovel.title}
+                        </h2>
+                      </div>
 
-                    <div className="space-y-1 pt-4 border-t border-white/10 text-[11px] text-slate-400">
-                      <p>基調：{currentNovel.tone || '精彩紛呈'}</p>
-                      <p>章節：{sortedChapters.length} 回全</p>
-                      <p className="font-mono text-purple-300 font-bold">{totalWordCount.toLocaleString()} 字</p>
+                      <div className="space-y-1 pt-4 border-t border-white/10 text-[11px] text-slate-400">
+                        <p>基調：{currentNovel.tone || '精彩紛呈'}</p>
+                        <p>章節：{sortedChapters.length} 回全</p>
+                        <p className="font-mono text-purple-300 font-bold">{totalWordCount.toLocaleString()} 字</p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* 書籍主題與故事簡介 (不含劇本、角色卡等後台雜訊) */}
@@ -572,14 +607,34 @@ export const FrontstageView: React.FC<Props> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-bold text-sm flex items-center gap-2">
-                <List className="w-4 h-4 text-purple-400" />
-                <span>章節目錄 ({sortedChapters.length})</span>
-              </h3>
+              <div className="flex items-center gap-2.5 truncate pr-2">
+                {currentNovel?.cover_url ? (
+                  <img
+                    src={currentNovel.cover_url}
+                    alt=""
+                    className="w-7 h-9 rounded object-cover border border-slate-700/80 shrink-0 shadow-sm"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="w-7 h-9 rounded bg-purple-900/40 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                    <List className="w-4 h-4" />
+                  </div>
+                )}
+                <div className="truncate">
+                  <h3 className="font-bold text-sm text-slate-100 truncate">
+                    {currentNovel?.title || '作品目錄'}
+                  </h3>
+                  <p className="text-[10px] text-purple-400 font-mono">
+                    全書目錄 ({sortedChapters.length} 回)
+                  </p>
+                </div>
+              </div>
               <button 
                 type="button" 
                 onClick={() => setCatalogDrawerOpen(false)}
-                className="text-slate-400 hover:text-slate-100"
+                className="text-slate-400 hover:text-slate-100 p-1 rounded-lg hover:bg-slate-800 transition"
               >
                 ✕
               </button>

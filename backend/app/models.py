@@ -81,6 +81,7 @@ class Novel(BaseModel):
     tone: str = Field(default="熱血激昂", description="寫作風格與基調 (如：幽默詼諧、黑暗壓抑、史詩磅礴)")
     main_plot: str = Field(default="", description="主要劇情架構 / 核心主線 / 衝突與目標")
     world_background: str = Field(default="", description="世界觀概述與時代背景")
+    cover_url: Optional[str] = Field(default="", description="小說封面圖片 URL (支援本地上傳或外部連結)")
     global_style_guide: Optional[str] = Field(
         default="", 
         description="全域 AI 文字風格與行文規範 (最高優先級，約束全域小說、角色、地點與正文生成)"

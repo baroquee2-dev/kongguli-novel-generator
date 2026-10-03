@@ -18,6 +18,7 @@ def list_novels() -> List[dict]:
                     "genre": data.get("genre"),
                     "tone": data.get("tone"),
                     "main_plot": data.get("main_plot", ""),
+                    "cover_url": data.get("cover_url", ""),
                     "locations_count": len(data.get("locations", [])),
                     "characters_count": len(data.get("characters", [])),
                     "chapters_count": len(data.get("chapters", [])),

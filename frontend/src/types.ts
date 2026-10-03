@@ -70,6 +70,7 @@ export interface Novel {
   tone: string;
   main_plot: string;
   world_background: string;
+  cover_url?: string;
   global_style_guide?: string;
   locations: Location[];
   characters: Character[];
@@ -85,6 +86,7 @@ export interface NovelListItem {
   genre: string;
   tone: string;
   main_plot: string;
+  cover_url?: string;
   locations_count: number;
   characters_count: number;
   chapters_count: number;

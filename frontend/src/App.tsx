@@ -193,12 +193,13 @@ export const App: React.FC = () => {
       try {
         await api.saveNovel(updated);
         setLastSavedTime(new Date().toLocaleTimeString());
-        // 同步更新小說列表計數
+        // 同步更新小說列表計數與封面
         setNovels(prev => prev.map(n => n.id === updated.id ? {
           ...n,
           title: updated.title,
           genre: updated.genre,
           tone: updated.tone,
+          cover_url: updated.cover_url,
           locations_count: updated.locations.length,
           characters_count: updated.characters.length,
           chapters_count: updated.chapters.length,

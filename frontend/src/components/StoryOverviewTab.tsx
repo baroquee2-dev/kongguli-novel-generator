@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import type { Novel } from '../types';
-import { Sparkles, Loader2, BookOpen, Globe2, Compass, PenTool, Wand2, Flame, RotateCcw } from 'lucide-react';
+import { 
+  Sparkles, Loader2, BookOpen, Globe2, Compass, PenTool, Wand2, Flame, RotateCcw,
+  Upload, Link as LinkIcon, Trash2, Image as ImageIcon
+} from 'lucide-react';
 import { api } from '../api/client';
 
 interface Props {
@@ -14,6 +17,26 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange }) => {
   const [preferredGenre, setPreferredGenre] = useState('');
   const [generating, setGenerating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // 封面圖上傳與設定狀態
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+
+  const handleCoverFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingCover(true);
+    try {
+      const url = await api.uploadAvatar(file);
+      onChange({ ...novel, cover_url: url });
+    } catch (err: any) {
+      alert(err.message || '封面圖片上傳失敗');
+    } finally {
+      setIsUploadingCover(false);
+      e.target.value = '';
+    }
+  };
 
   const handleAiBrainstorm = async () => {
     if (!roughIdea.trim()) {
@@ -73,48 +96,143 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange }) => {
         </button>
       </div>
 
-      {/* 基礎資訊網格 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 書名 */}
-        <div className="md:col-span-1 p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
-          <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-            <BookOpen className="w-3.5 h-3.5 text-purple-400" /> 小說名稱
-          </label>
-          <input
-            type="text"
-            value={novel.title}
-            onChange={(e) => onChange({ ...novel, title: e.target.value })}
-            placeholder="請輸入小說名稱"
-            className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm font-semibold text-slate-100 focus:outline-none focus:border-purple-500 transition"
-          />
+      {/* 基礎資訊與封面設定網格 */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* 左側：自訂小說立體封面卡片 (佔 4 欄) */}
+        <div className="lg:col-span-4 p-5 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between space-y-4 shadow-lg">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5 text-pink-400" />
+                <span>小說自訂封面</span>
+              </label>
+              {novel.cover_url && (
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...novel, cover_url: '' })}
+                  className="text-[11px] text-slate-500 hover:text-rose-400 flex items-center gap-1 transition"
+                  title="移除自訂封面"
+                >
+                  <Trash2 className="w-3 h-3" /> 移除
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              此封面將展示於前台閱讀首頁與書庫目錄中。
+            </p>
+          </div>
+
+          {/* 立體書封預覽 */}
+          <div className="relative mx-auto w-36 h-52 sm:w-44 sm:h-64 rounded-xl overflow-hidden bg-gradient-to-tr from-purple-900/60 via-indigo-900/40 to-slate-950 border border-purple-500/30 shadow-xl shadow-purple-950/40 flex items-center justify-center group">
+            {novel.cover_url ? (
+              <img
+                src={novel.cover_url}
+                alt={novel.title}
+                className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="p-4 text-center space-y-2">
+                <div className="w-10 h-10 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center mx-auto">
+                  <ImageIcon className="w-5 h-5" />
+                </div>
+                <p className="text-[11px] font-bold text-slate-300 line-clamp-2">{novel.title}</p>
+                <p className="text-[10px] text-slate-500">{novel.genre} · {novel.tone}</p>
+                <span className="inline-block px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
+                  尚未設定封面
+                </span>
+              </div>
+            )}
+
+            {/* 書脊立體光影 (仿實體書裝幀) */}
+            <div className="absolute inset-y-0 left-0 w-3 bg-gradient-to-r from-black/40 to-transparent pointer-events-none" />
+          </div>
+
+          {/* 上傳與網址設定按鈕列 */}
+          <div className="space-y-2 pt-2 border-t border-slate-800">
+            <input
+              type="file"
+              ref={coverFileInputRef}
+              onChange={handleCoverFileUpload}
+              accept="image/*"
+              className="hidden"
+            />
+            
+            <button
+              type="button"
+              onClick={() => coverFileInputRef.current?.click()}
+              disabled={isUploadingCover}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-xs font-bold transition disabled:opacity-50"
+            >
+              {isUploadingCover ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              <span>{isUploadingCover ? '上傳中...' : '本地上傳圖片'}</span>
+            </button>
+
+            {/* 外部圖片 URL 快速填寫 */}
+            <div className="relative">
+              <LinkIcon className="w-3 h-3 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={novel.cover_url || ''}
+                onChange={(e) => onChange({ ...novel, cover_url: e.target.value.trim() })}
+                placeholder="或直接貼上圖片 URL..."
+                className="w-full pl-7 pr-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-purple-500"
+              />
+            </div>
+          </div>
         </div>
 
-        {/* 題材類型 */}
-        <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
-          <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-            <Compass className="w-3.5 h-3.5 text-indigo-400" /> 題材類型
-          </label>
-          <input
-            type="text"
-            value={novel.genre}
-            onChange={(e) => onChange({ ...novel, genre: e.target.value })}
-            placeholder="例如：奇幻蒸氣龐克、東方玄幻、懸疑解謎"
-            className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-purple-500 transition"
-          />
-        </div>
+        {/* 右側：書名、題材類型、風格基調 (佔 8 欄) */}
+        <div className="lg:col-span-8 space-y-4 flex flex-col justify-between">
+          <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2 shadow-lg">
+            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <BookOpen className="w-3.5 h-3.5 text-purple-400" /> 小說名稱
+            </label>
+            <input
+              type="text"
+              value={novel.title}
+              onChange={(e) => onChange({ ...novel, title: e.target.value })}
+              placeholder="請輸入小說名稱"
+              className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-base font-bold text-slate-100 focus:outline-none focus:border-purple-500 transition"
+            />
+          </div>
 
-        {/* 風格基調 */}
-        <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
-          <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-            <PenTool className="w-3.5 h-3.5 text-pink-400" /> 風格基調
-          </label>
-          <input
-            type="text"
-            value={novel.tone}
-            onChange={(e) => onChange({ ...novel, tone: e.target.value })}
-            placeholder="例如：熱血冒險、暗黑懸疑、輕鬆幽默"
-            className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-purple-500 transition"
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* 題材類型 */}
+            <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2 shadow-lg">
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Compass className="w-3.5 h-3.5 text-indigo-400" /> 題材類型
+              </label>
+              <input
+                type="text"
+                value={novel.genre}
+                onChange={(e) => onChange({ ...novel, genre: e.target.value })}
+                placeholder="例如：奇幻蒸氣龐克、東方玄幻、懸疑解謎"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-purple-500 transition"
+              />
+            </div>
+
+            {/* 風格基調 */}
+            <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2 shadow-lg">
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <PenTool className="w-3.5 h-3.5 text-pink-400" /> 風格基調
+              </label>
+              <input
+                type="text"
+                value={novel.tone}
+                onChange={(e) => onChange({ ...novel, tone: e.target.value })}
+                placeholder="例如：熱血冒險、暗黑懸疑、輕鬆幽默"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-purple-500 transition"
+              />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/20 text-xs text-purple-300 flex items-center gap-2">
+            <span className="text-base">💡</span>
+            <span>設定好書名、基調與封面後，點擊右上角「📖 切換至前台閱讀」可立即預覽讀者看到的實體書效果！</span>
+          </div>
         </div>
       </div>
 
