@@ -8,6 +8,7 @@ import { LocationsTab } from './components/LocationsTab';
 import { CharactersTab } from './components/CharactersTab';
 import { ChaptersTab } from './components/ChaptersTab';
 import { LorebookTab } from './components/LorebookTab';
+import { FrontstageView } from './components/FrontstageView';
 import { 
   BookMarked, MapPin, Users, BookOpenCheck, Loader2, CheckCircle, Brain
 } from 'lucide-react';
@@ -17,6 +18,22 @@ export const App: React.FC = () => {
   const [currentNovelId, setCurrentNovelId] = useState<string>('');
   const [currentNovel, setCurrentNovel] = useState<Novel | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'locations' | 'characters' | 'chapters' | 'lorebook'>('overview');
+
+  // 前台讀者展示模式 vs 後台五層創作模式切換
+  const [viewMode, setViewMode] = useState<'studio' | 'frontstage'>(() => {
+    try {
+      return (localStorage.getItem('novel_app_view_mode') as 'studio' | 'frontstage') || 'studio';
+    } catch {
+      return 'studio';
+    }
+  });
+
+  const handleToggleViewMode = (mode: 'studio' | 'frontstage') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('novel_app_view_mode', mode);
+    } catch {}
+  };
 
   const [settings, setSettings] = useState<AISettings>({
     provider: 'openai',
@@ -213,6 +230,18 @@ export const App: React.FC = () => {
     );
   }
 
+  // 獨立前台讀者展示模式 (純粹故事本體與章節目錄，排除劇本、角色卡等後台雜訊)
+  if (viewMode === 'frontstage') {
+    return (
+      <FrontstageView
+        novels={novels}
+        currentNovel={currentNovel}
+        onSelectNovel={handleSelectNovel}
+        onBackToStudio={() => handleToggleViewMode('studio')}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* 頂部導覽列 */}
@@ -224,6 +253,7 @@ export const App: React.FC = () => {
         onInitSample={handleInitSample}
         onDeleteNovel={handleDeleteNovel}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onSwitchToFrontstage={() => handleToggleViewMode('frontstage')}
         settings={settings}
       />
 

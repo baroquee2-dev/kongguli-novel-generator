@@ -13,6 +13,7 @@ interface Props {
   onInitSample: () => void;
   onDeleteNovel: (id: string) => void;
   onOpenSettings: () => void;
+  onSwitchToFrontstage: () => void;
   settings: AISettings;
 }
 
@@ -24,6 +25,7 @@ export const Navbar: React.FC<Props> = ({
   onInitSample,
   onDeleteNovel,
   onOpenSettings,
+  onSwitchToFrontstage,
   settings
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -108,6 +110,16 @@ export const Navbar: React.FC<Props> = ({
 
       {/* 右側：動作按鈕群 */}
       <div className="flex items-center gap-3">
+        {/* 🌟 切換到前台閱讀展台按鈕 */}
+        <button
+          onClick={onSwitchToFrontstage}
+          title="切換至前台讀者閱讀展台，完整列出主題與純故事正文"
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600/30 via-teal-600/30 to-cyan-600/30 hover:from-emerald-600/50 hover:to-cyan-600/50 border border-emerald-500/50 text-xs font-bold text-emerald-200 transition shadow-sm shadow-emerald-500/10 transform hover:-translate-y-0.5"
+        >
+          <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+          <span>📖 切換至前台閱讀</span>
+        </button>
+
         {currentNovel && (
           <>
             <button
