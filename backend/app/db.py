@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from app.config import NOVELS_DIR, GAMES_DIR
-from app.models import Novel, GameProject
+from app.models import Novel, GameProject, GameRulesConfig
 
 def list_novels() -> List[dict]:
     novels = []
@@ -248,6 +248,12 @@ def create_sample_game() -> GameProject:
         main_plot="在2142年新東京地下深處的『克羅諾斯時空觀測所』，時空信標突然出現逆流崩潰。身為第七執行官的主角必須穿越至七個不同的歷史分歧點，在多位具有特殊異能的同伴協助下，修復時空因果線，並在最後揭發觀測所所長企圖重塑全人類記憶的黑暗真相。",
         world_background="世界由『量子因果律網絡』維持穩定，少數覺醒者能感知世界線變動率。時空穿梭裝置由『反重力晶核』與『虛數神經連接器』驅動。",
         global_style_guide="電影感臨場體驗，對話具備強烈性格色彩，關鍵選項與分支抉擇富有戲劇張力；場景渲染科技神秘質感。",
+        game_rules=GameRulesConfig(
+            rules_text="1. 每次時空跳躍消耗 1 枚反重力晶核，能量耗盡無法跳躍。\n2. 歷史分歧點的重大抉擇具有不可逆性，無法讀檔重置。\n3. 主角若遭遇因果律崩潰，將陷入時空迴廊迷失狀態。\n4. 禁止憑空創造超因果武器，所有行動遵循物理守恆法則。",
+            dialog_choices=[3],
+            allow_custom_input=True,
+            strict_rule_enforcement=True
+        ),
         locations=[
             {
                 "id": "loc-g1",

@@ -90,10 +90,17 @@ class Novel(BaseModel):
     characters: List[Character] = Field(default_factory=list, description="第 3 層：角色清單與頭像")
     lore_items: List[LoreItem] = Field(default_factory=list, description="第 4 層：長時記憶庫 / 關鍵伏筆與世界書卡片 (Lorebook)")
     chapters: List[Chapter] = Field(default_factory=list, description="第 5 層：章節創作清單")
+    game_rules: Optional["GameRulesConfig"] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
-# ==================== 獨立遊戲版專案模型 ====================
+# ==================== 獨立遊戲版規則與專案模型 ====================
+class GameRulesConfig(BaseModel):
+    rules_text: str = Field(default="", description="第一欄：自訂遊戲規則文字")
+    dialog_choices: List[int] = Field(default_factory=lambda: [3], description="第二欄：每回合對話選項數量 (0, 3, 4, 5)")
+    allow_custom_input: bool = Field(default=True, description="第三欄：是否允許玩家自行輸入劇情分歧")
+    strict_rule_enforcement: bool = Field(default=True, description="第四欄：強硬遊戲規則防暴走(True) 或 劇情自由發展(False)")
+
 class GameProject(BaseModel):
     id: Optional[str] = Field(default="", description="遊戲專案 ID")
     title: str = Field(default="未命名遊戲專案", description="遊戲名稱")
@@ -105,6 +112,10 @@ class GameProject(BaseModel):
     global_style_guide: Optional[str] = Field(
         default="", 
         description="全域 AI 文字風格與對話行文規範"
+    )
+    game_rules: Optional[GameRulesConfig] = Field(
+        default_factory=GameRulesConfig,
+        description="第 1 層頂部：遊戲規則定義 (4 欄位：規則文字、選項數、玩家自訂、強硬/自由約束)"
     )
     locations: List[Location] = Field(default_factory=list, description="第 2 層：世界場景與地圖清單")
     characters: List[Character] = Field(default_factory=list, description="第 3 層：NPC角色與立繪清單")

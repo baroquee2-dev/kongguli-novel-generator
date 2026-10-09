@@ -529,7 +529,7 @@ export const App: React.FC = () => {
           currentGame ? (
             <>
               {activeGameTab === 'overview' && (
-                <StoryOverviewTab novel={currentGame} onChange={handleGameChange} />
+                <StoryOverviewTab novel={currentGame} onChange={handleGameChange} isGame={true} />
               )}
               {activeGameTab === 'locations' && (
                 <LocationsTab novel={currentGame} onChange={handleGameChange} />
@@ -558,7 +558,7 @@ export const App: React.FC = () => {
           currentNovel ? (
             <>
               {activeNovelTab === 'overview' && (
-                <StoryOverviewTab novel={currentNovel} onChange={handleNovelChange} />
+                <StoryOverviewTab novel={currentNovel} onChange={handleNovelChange} isGame={false} />
               )}
               {activeNovelTab === 'locations' && (
                 <LocationsTab novel={currentNovel} onChange={handleNovelChange} />

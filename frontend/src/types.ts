@@ -76,6 +76,7 @@ export interface Novel {
   characters: Character[];
   chapters: Chapter[];
   lore_items?: LoreItem[];
+  game_rules?: GameRulesConfig;
   created_at?: string;
   updated_at?: string;
 }
@@ -108,8 +109,15 @@ export interface RecalledScene {
 // ==================== 獨立遊戲版型別 ====================
 export type SystemMode = 'novel' | 'game';
 
+export interface GameRulesConfig {
+  rules_text: string;                  // 第一欄：自行輸入文字定義遊戲規則
+  dialog_choices: number[];            // 第二欄：每回合對話選擇數 (0, 3, 4, 5)
+  allow_custom_input: boolean;         // 第三欄：是否允許玩家自行輸入劇情分歧
+  strict_rule_enforcement: boolean;    // 第四欄：強硬遊戲規則防暴走(true) 或 劇情自由發展(false)
+}
+
 export interface GameProject extends Novel {
-  // 遊戲版第一版架構與小說保持同構，未來可擴充遊戲專屬屬性如：分支選擇、變數數值、立繪表情等
+  game_rules?: GameRulesConfig;
 }
 
 export interface GameListItem extends NovelListItem {
