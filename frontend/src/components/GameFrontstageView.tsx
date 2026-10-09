@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { GameProject, GameListItem, GameChoiceOption, GameTurnHistoryItem } from '../types';
 import { api } from '../api/client';
 import { 
@@ -134,6 +134,55 @@ export const GameFrontstageView: React.FC<Props> = ({
 
   // 大廳搜尋
   const [lobbySearch, setLobbySearch] = useState('');
+
+  // 遊戲進行中背景循環圖集：包含封面圖及所有已設定頭像的角色圖
+  const backgroundSlides = useMemo(() => {
+    if (!playingGame) return [];
+    const list: { url: string; label: string; type: 'cover' | 'character' }[] = [];
+
+    // 1. 遊戲封面圖
+    if (playingGame.cover_url && playingGame.cover_url.trim()) {
+      list.push({
+        url: playingGame.cover_url.trim(),
+        label: `封面 · ${playingGame.title}`,
+        type: 'cover',
+      });
+    }
+
+    // 2. 所有登場角色圖
+    if (Array.isArray(playingGame.characters)) {
+      playingGame.characters.forEach((char) => {
+        if (char.avatar_url && char.avatar_url.trim()) {
+          // 避免與封面完全相同 URL 重複
+          if (!list.some(item => item.url === char.avatar_url!.trim())) {
+            list.push({
+              url: char.avatar_url.trim(),
+              label: `角色 · ${char.name}${char.role ? ` (${char.role})` : ''}`,
+              type: 'character',
+            });
+          }
+        }
+      });
+    }
+
+    return list;
+  }, [playingGame]);
+
+  const [currentBgIndex, setCurrentBgIndex] = useState(0);
+
+  // 定時平滑循環切換背景圖 (每 8 秒自動輪播)
+  useEffect(() => {
+    if (backgroundSlides.length <= 1) {
+      setCurrentBgIndex(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setCurrentBgIndex((prev) => (prev + 1) % backgroundSlides.length);
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [backgroundSlides.length]);
 
   // 滾動參照
   const chatBottomRef = useRef<HTMLDivElement>(null);
@@ -729,7 +778,54 @@ export const GameFrontstageView: React.FC<Props> = ({
 
   // ==================== 2. 遊戲進行中視圖 (Play Session) ====================
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative overflow-x-hidden">
+      {/* 🌌 動態淡色循環背景圖層 (封面圖與角色圖淡入淡出輪播) 🌌 */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        {backgroundSlides.length > 0 ? (
+          <>
+            {backgroundSlides.map((slide, idx) => {
+              const isActive = idx === currentBgIndex;
+              return (
+                <div
+                  key={`${slide.url}-${idx}`}
+                  className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+                    isActive ? 'opacity-20' : 'opacity-0'
+                  }`}
+                >
+                  <img
+                    src={slide.url}
+                    alt={slide.label}
+                    className="w-full h-full object-cover object-center filter saturate-110 brightness-90 transform scale-105 transition-transform duration-[8000ms] ease-out"
+                  />
+                </div>
+              );
+            })}
+            {/* 深色暗角與半透明漸層遮罩，保證前景文字與選項最高可讀性 */}
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/85 via-slate-950/80 to-slate-950/95" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-slate-950/40 to-slate-950/90" />
+          </>
+        ) : (
+          /* 若無圖片時的科技感暗夜漸層與環境光 */
+          <>
+            <div className="absolute -top-40 -left-40 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute top-1/3 -right-40 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+          </>
+        )}
+      </div>
+
+      {/* 背景圖當前輪播指示標籤 (極簡淡色小標，左下角) */}
+      {backgroundSlides.length > 0 && (
+        <div className="fixed bottom-3 left-4 z-20 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/60 border border-slate-800/50 backdrop-blur-sm text-[10px] text-slate-400/80 shadow-lg">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span>背景：{backgroundSlides[currentBgIndex]?.label}</span>
+          {backgroundSlides.length > 1 && (
+            <span className="font-mono text-[9px] text-slate-500">
+              ({currentBgIndex + 1}/{backgroundSlides.length})
+            </span>
+          )}
+        </div>
+      )}
+
       {/* 冒險頂部控制橫幅 */}
       <header className="h-16 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-4">
@@ -850,7 +946,7 @@ export const GameFrontstageView: React.FC<Props> = ({
       </header>
 
       {/* 冒險進行中主介面 */}
-      <div className={`flex-1 w-full mx-auto p-4 sm:p-6 pb-28 transition-all ${
+      <div className={`relative z-10 flex-1 w-full mx-auto p-4 sm:p-6 pb-28 transition-all ${
         isStatsEnabled && showStatsBar
           ? 'max-w-[1536px] flex flex-col lg:flex-row items-start gap-6'
           : 'max-w-5xl flex flex-col space-y-6'
