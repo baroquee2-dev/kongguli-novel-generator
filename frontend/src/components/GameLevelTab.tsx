@@ -13,13 +13,13 @@ interface Props {
 }
 
 export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
-  // 確保遊戲專案至少有第 1 個關卡，且只能創作第 1 關
-  const firstLevel: Chapter = game.chapters && game.chapters.length > 0 
+  // 遊戲採用單一啟始劇情設定 (非關卡制)
+  const initialStory: Chapter = game.chapters && game.chapters.length > 0 
     ? game.chapters[0] 
     : {
-        id: `chap-level-1`,
+        id: `chap-opening`,
         chapter_number: 1,
-        title: '第 1 關：序章・命運的破曉',
+        title: '序章：命運的破曉',
         outline: '警報大作，基地遭遇突襲，主角面臨最初的世界線危機抉擇。',
         selected_location_ids: [],
         selected_sub_location_ids: [],
@@ -34,33 +34,33 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
         ]
       };
 
-  const startingOptions: GameChoiceOption[] = firstLevel.starting_options && firstLevel.starting_options.length > 0
-    ? firstLevel.starting_options
+  const startingOptions: GameChoiceOption[] = initialStory.starting_options && initialStory.starting_options.length > 0
+    ? initialStory.starting_options
     : [
         { id: `opt-${Date.now()}-1`, text: '選擇 A：迎面迎擊突發危機', hint: '勇氣與正面突破' },
         { id: `opt-${Date.now()}-2`, text: '選擇 B：保持冷靜觀察環境尋找退路', hint: '謹慎與智力策略' },
         { id: `opt-${Date.now()}-3`, text: '選擇 C：嘗試與神秘聲音展開交涉', hint: '談判與劇情秘密挖掘' }
       ];
 
-  const startingPlot: string = firstLevel.starting_plot !== undefined 
-    ? firstLevel.starting_plot 
-    : (firstLevel.content || '');
+  const startingPlot: string = initialStory.starting_plot !== undefined 
+    ? initialStory.starting_plot 
+    : (initialStory.content || '');
 
-  // 更新第 1 關資料並同步觸發 onChange
-  const handleUpdateLevel = (updatedFields: Partial<Chapter>) => {
-    const updatedLevel: Chapter = {
-      ...firstLevel,
+  // 更新單一啟始劇情資料並同步觸發 onChange
+  const handleUpdateStory = (updatedFields: Partial<Chapter>) => {
+    const updatedStory: Chapter = {
+      ...initialStory,
       ...updatedFields,
       chapter_number: 1,
       // 同步 content 與 word_count，確保其他系統相容
-      content: updatedFields.starting_plot !== undefined ? updatedFields.starting_plot : (firstLevel.starting_plot || firstLevel.content),
-      word_count: (updatedFields.starting_plot !== undefined ? updatedFields.starting_plot : (firstLevel.starting_plot || firstLevel.content)).replace(/\s/g, '').length
+      content: updatedFields.starting_plot !== undefined ? updatedFields.starting_plot : (initialStory.starting_plot || initialStory.content),
+      word_count: (updatedFields.starting_plot !== undefined ? updatedFields.starting_plot : (initialStory.starting_plot || initialStory.content)).replace(/\s/g, '').length
     };
 
     const remainingChapters = game.chapters ? game.chapters.slice(1) : [];
     onChange({
       ...game,
-      chapters: [updatedLevel, ...remainingChapters]
+      chapters: [updatedStory, ...remainingChapters]
     });
   };
 
@@ -72,7 +72,7 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
       text: `新啟始選項 ${nextIdx}`,
       hint: '自訂分歧導向'
     };
-    handleUpdateLevel({
+    handleUpdateStory({
       starting_options: [...startingOptions, newOpt]
     });
   };
@@ -80,7 +80,7 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
   const handleUpdateOption = (index: number, partial: Partial<GameChoiceOption>) => {
     const newOptions = [...startingOptions];
     newOptions[index] = { ...newOptions[index], ...partial };
-    handleUpdateLevel({
+    handleUpdateStory({
       starting_options: newOptions
     });
   };
@@ -91,7 +91,7 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
       return;
     }
     const newOptions = startingOptions.filter((_, i) => i !== index);
-    handleUpdateLevel({
+    handleUpdateStory({
       starting_options: newOptions
     });
   };
@@ -103,20 +103,20 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
     setIsAiBrainstorming(true);
     try {
       const locNames = game.locations
-        .filter(l => firstLevel.selected_location_ids.includes(l.id))
+        .filter(l => initialStory.selected_location_ids.includes(l.id))
         .map(l => l.name)
         .join('、');
       const charNames = game.characters
-        .filter(c => firstLevel.selected_character_ids.includes(c.id))
+        .filter(c => initialStory.selected_character_ids.includes(c.id))
         .map(c => c.name)
         .join('、');
 
-      const customPrompt = `請為遊戲《${game.title}》的第一關（序章）發想一段極具沉浸感、臨場感與危機張力的【啟始劇情】。\n` +
+      const customPrompt = `請為遊戲《${game.title}》發想一段極具沉浸感、臨場感與危機張力的開局【啟始劇情】。\n` +
         `遊戲題材：${game.genre} | 基調：${game.tone}\n` +
         `主線目標：${game.main_plot}\n` +
-        `關卡標題：${firstLevel.title}\n` +
-        `關卡大綱：${firstLevel.outline}\n` +
-        `${locNames ? `登場地點：${locNames}\n` : ''}` +
+        `開局標題：${initialStory.title}\n` +
+        `情境目標：${initialStory.outline}\n` +
+        `${locNames ? `發生地點：${locNames}\n` : ''}` +
         `${charNames ? `登場NPC：${charNames}\n` : ''}` +
         `要求：字數約 350-500 字，生動刻畫開局第一幕的突發衝突，結尾停在即將做出關鍵抉擇的瞬間。`;
 
@@ -129,7 +129,7 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
       });
 
       if (res && res.main_plot) {
-        handleUpdateLevel({
+        handleUpdateStory({
           starting_plot: res.main_plot
         });
       }
@@ -147,28 +147,28 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16 animate-in fade-in duration-200">
-      {/* 頂部橫幅：專屬關卡創作・第一關卡 */}
+      {/* 頂部橫幅：單一啟始劇情設定 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-gradient-to-r from-teal-950/40 via-slate-900/80 to-slate-900 border border-teal-500/30 shadow-xl">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
-              第 5 層・關卡創作
+              第 5 層・啟始設定
             </span>
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
               <Gamepad2 className="w-3.5 h-3.5" />
-              <span>僅限創作第 1 關</span>
+              <span>單一啟始情境</span>
             </span>
-            <h1 className="text-xl font-bold text-slate-100">首關啟始劇情與選項設計</h1>
+            <h1 className="text-xl font-bold text-slate-100">遊戲啟始劇情與選項設定</h1>
           </div>
           <p className="text-xs text-slate-400">
-            定義遊戲世界線展開的初始第一幕。填寫開局的【啟始劇情】與玩家面臨的第一組【啟始選項】。
+            設定遊戲開局的單一啟始劇情，以及玩家首先面臨的第一組初始命運選項分歧。
           </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-teal-300/90 bg-teal-950/60 border border-teal-500/30 px-3 py-1.5 rounded-xl font-mono flex items-center gap-1.5 shadow-sm">
             <CheckCircle2 className="w-4 h-4 text-teal-400" />
-            <span>序章啟動關卡</span>
+            <span>開局啟始設定已就緒</span>
           </span>
         </div>
       </div>
@@ -196,34 +196,34 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
         </div>
       </div>
 
-      {/* 關卡基礎資訊卡片 (名稱、目標與場景NPC關聯) */}
+      {/* 開局基礎情境資訊卡片 (標題、目標與場景NPC關聯) */}
       <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 shadow-lg space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* 關卡名稱 */}
+          {/* 開局標題 */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
               <Compass className="w-3.5 h-3.5 text-teal-400" />
-              <span>第一關關卡名稱 *</span>
+              <span>開局情境標題 *</span>
             </label>
             <input
               type="text"
-              value={firstLevel.title}
-              onChange={(e) => handleUpdateLevel({ title: e.target.value })}
-              placeholder="例如：第 1 關：序章・紅光警報下的第 0 號分歧點"
+              value={initialStory.title}
+              onChange={(e) => handleUpdateStory({ title: e.target.value })}
+              placeholder="例如：序章・紅光警報下的第 0 號分歧點"
               className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm font-bold text-slate-100 focus:outline-none focus:border-teal-500 transition"
             />
           </div>
 
-          {/* 核心目標與大綱 */}
+          {/* 核心目標與衝突 */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
               <FileText className="w-3.5 h-3.5 text-indigo-400" />
-              <span>關卡開局目標與危機大綱</span>
+              <span>開局核心衝突與目標</span>
             </label>
             <input
               type="text"
-              value={firstLevel.outline}
-              onChange={(e) => handleUpdateLevel({ outline: e.target.value })}
+              value={initialStory.outline}
+              onChange={(e) => handleUpdateStory({ outline: e.target.value })}
               placeholder="例如：因果控制室警報大作，變動率跌落臨界點，主角需在時空崩解前做出關鍵抉擇"
               className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-teal-500 transition"
             />
@@ -236,21 +236,21 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
           <div>
             <label className="text-xs font-medium text-slate-400 flex items-center gap-1 mb-1.5">
               <MapPin className="w-3 h-3 text-emerald-400" />
-              <span>發生場景 (點擊勾選)</span>
+              <span>開局發生場景 (點擊勾選)</span>
             </label>
             <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
               {game.locations.length > 0 ? (
                 game.locations.map(loc => {
-                  const isSelected = firstLevel.selected_location_ids.includes(loc.id);
+                  const isSelected = initialStory.selected_location_ids.includes(loc.id);
                   return (
                     <button
                       key={loc.id}
                       type="button"
                       onClick={() => {
                         const newIds = isSelected
-                          ? firstLevel.selected_location_ids.filter(id => id !== loc.id)
-                          : [...firstLevel.selected_location_ids, loc.id];
-                        handleUpdateLevel({ selected_location_ids: newIds });
+                          ? initialStory.selected_location_ids.filter(id => id !== loc.id)
+                          : [...initialStory.selected_location_ids, loc.id];
+                        handleUpdateStory({ selected_location_ids: newIds });
                       }}
                       className={`text-xs px-2.5 py-1 rounded-lg border transition ${
                         isSelected
@@ -272,21 +272,21 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
           <div>
             <label className="text-xs font-medium text-slate-400 flex items-center gap-1 mb-1.5">
               <Users className="w-3 h-3 text-blue-400" />
-              <span>登場NPC夥伴 (點擊勾選)</span>
+              <span>開局登場NPC夥伴 (點擊勾選)</span>
             </label>
             <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
               {game.characters.length > 0 ? (
                 game.characters.map(char => {
-                  const isSelected = firstLevel.selected_character_ids.includes(char.id);
+                  const isSelected = initialStory.selected_character_ids.includes(char.id);
                   return (
                     <button
                       key={char.id}
                       type="button"
                       onClick={() => {
                         const newIds = isSelected
-                          ? firstLevel.selected_character_ids.filter(id => id !== char.id)
-                          : [...firstLevel.selected_character_ids, char.id];
-                        handleUpdateLevel({ selected_character_ids: newIds });
+                          ? initialStory.selected_character_ids.filter(id => id !== char.id)
+                          : [...initialStory.selected_character_ids, char.id];
+                        handleUpdateStory({ selected_character_ids: newIds });
                       }}
                       className={`text-xs px-2.5 py-1 rounded-lg border transition ${
                         isSelected
@@ -315,13 +315,13 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-slate-100">第一關卡：啟始劇情 (Opening Narrative)</h2>
+                <h2 className="text-sm font-bold text-slate-100">開局啟始劇情 (Opening Narrative)</h2>
                 <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 font-semibold">
-                  開局正文
+                  正文描述
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                玩家進入遊戲首關時閱讀到的起始世界情境、感官氛圍與突發危機描寫：
+                玩家進入遊戲時最先體驗到的世界情境、感官氛圍與突發事件描寫：
               </p>
             </div>
           </div>
@@ -334,7 +334,7 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-medium text-xs shadow-md shadow-teal-600/20 transition disabled:opacity-50"
             >
               {isAiBrainstorming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-              <span>{isAiBrainstorming ? 'AI 構思中...' : 'AI 輔助啟始劇情'}</span>
+              <span>{isAiBrainstorming ? 'AI 構思中...' : 'AI 輔助發想啟始劇情'}</span>
             </button>
             <span className="text-[11px] font-mono text-slate-500 bg-slate-950/70 px-2 py-1 rounded-lg border border-slate-800">
               {startingPlot.replace(/\s/g, '').length} 字
@@ -345,8 +345,8 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
         <textarea
           rows={11}
           value={startingPlot}
-          onChange={(e) => handleUpdateLevel({ starting_plot: e.target.value })}
-          placeholder={`請寫入第一關的開局啟始劇情...例如：
+          onChange={(e) => handleUpdateStory({ starting_plot: e.target.value })}
+          placeholder={`請寫入遊戲的開局啟始劇情...例如：
 刺耳的高頻防空警報撕裂了克羅諾斯觀測所的死寂。
 全息中樞環上的數值正以恐怖的速度向下跌落——「0.4819%... 0.3120%...」紅芒將第七因果控制室映照得猶如血海。
 你從冰冷的冷卻液中猛然嗆咳著甦醒，眼前的量子回環儀正發出悲鳴般的過載震顫。
@@ -365,9 +365,9 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-slate-100">第一關卡：啟始選項 (Initial Choices)</h2>
+                <h2 className="text-sm font-bold text-slate-100">開局啟始選項 (Initial Choices)</h2>
                 <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                  命運分歧點
+                  初始命運分歧
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -450,7 +450,7 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
         <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-1.5">
             <Info className="w-3.5 h-3.5 text-slate-400" />
-            <span>目前已配置 {startingOptions.length} 個啟始選項。玩家進入遊戲將直接面臨此組分歧抉擇。</span>
+            <span>目前已配置 {startingOptions.length} 個啟始選項。玩家進入遊戲將直接面臨此組初始分歧抉擇。</span>
           </div>
 
           <button

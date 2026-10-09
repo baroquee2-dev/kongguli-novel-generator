@@ -159,7 +159,7 @@ export const Navbar: React.FC<Props> = ({
                     >
                       <span className="truncate pr-2">{g.title}</span>
                       <span className="text-[10px] text-slate-500 shrink-0 font-mono">
-                        {g.chapters_count} 關/章
+                        {g.total_word_count ? `${g.total_word_count} 字` : '啟始情境'}
                       </span>
                     </button>
                   ))

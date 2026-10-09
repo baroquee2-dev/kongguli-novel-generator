@@ -222,10 +222,17 @@ async def api_export_game(game_id: str):
     
     sorted_chapters = sorted(g.chapters, key=lambda c: c.chapter_number)
     for chap in sorted_chapters:
-        lines.append(f"\n## 第 {chap.chapter_number} 關/章：{chap.title}\n")
+        lines.append(f"\n## 開局啟始情境：{chap.title}\n")
         if chap.outline:
-            lines.append(f"> 【關卡大綱】: {chap.outline}\n")
-        lines.append(f"\n{chap.content}\n")
+            lines.append(f"> 【開局情境目標】: {chap.outline}\n")
+        plot_text = chap.starting_plot or chap.content
+        if plot_text:
+            lines.append(f"\n### 【啟始劇情】\n{plot_text}\n")
+        if chap.starting_options:
+            lines.append("\n### 【開局啟始選項】\n")
+            for idx, opt in enumerate(chap.starting_options, 1):
+                hint_str = f" （分歧提示：{opt.hint}）" if opt.hint else ""
+                lines.append(f"- 選項 {idx}：{opt.text}{hint_str}")
         lines.append("\n")
     
     content = "\n".join(lines)

@@ -333,7 +333,7 @@ export const App: React.FC = () => {
           chapters: [{
             id: `chap-${Date.now().toString(36)}`,
             chapter_number: 1,
-            title: '第 1 關/章：序章冒險啟程',
+            title: '序章：命運的開端',
             outline: '',
             selected_location_ids: [],
             selected_sub_location_ids: [],
@@ -477,7 +477,7 @@ export const App: React.FC = () => {
               },
               { 
                 id: 'chapters', 
-                label: isGameMode ? '第 5 層：關卡創作' : '第 5 層：章節創作', 
+                label: isGameMode ? '第 5 層：啟始劇情' : '第 5 層：章節創作', 
                 icon: BookOpenCheck, 
                 color: isGameMode ? 'text-teal-400' : 'text-pink-400' 
               },

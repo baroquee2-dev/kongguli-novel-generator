@@ -567,7 +567,7 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
             <span className="text-base">💡</span>
             <span>
               {isGame 
-                ? '提示：設定好遊戲名稱、頂層規則與世界觀後，即可依序設定世界場景、NPC與劇情分歧關卡！'
+                ? '提示：設定好遊戲名稱、頂層規則與世界觀後，即可依序設定世界場景、NPC與開局啟始劇情！'
                 : '設定好書名、基調與封面後，點擊右上角「📖 切換至前台閱讀」可立即預覽讀者看到的實體書效果！'}
             </span>
           </div>
@@ -694,10 +694,10 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
             <Sparkles className="w-4 h-4 text-amber-400" />
             <span>{isGame ? '核心主線任務與目標走向' : '主要劇情架構 / 核心主線'}</span>
           </label>
-          <span className="text-xs text-slate-500">（AI 生成章節與關卡的核心依據）</span>
+          <span className="text-xs text-slate-500">{isGame ? '（AI 輔助生成劇情與分歧的核心依據）' : '（AI 生成章節的核心依據）'}</span>
         </div>
         <p className="text-xs text-slate-400">
-          {isGame ? '描述遊戲的主線目標、分歧衝突、關卡演進與預期終局走向。' : '描述全書的主線走向：開局危機、主角目標、敵對阻礙、命運高潮與預期結局。'}
+          {isGame ? '描述遊戲的主線目標、核心衝突、危機事件與預期終局走向。' : '描述全書的主線走向：開局危機、主角目標、敵對阻礙、命運高潮與預期結局。'}
         </p>
         <textarea
           rows={7}
