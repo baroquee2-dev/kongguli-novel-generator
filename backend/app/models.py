@@ -107,6 +107,8 @@ class GameRulesConfig(BaseModel):
     dialog_choices: List[int] = Field(default_factory=lambda: [3], description="第二欄：每回合對話選項數量 (3, 4, 5)")
     allow_custom_input: bool = Field(default=True, description="第三欄：是否允許玩家自行輸入劇情分歧")
     strict_rule_enforcement: bool = Field(default=True, description="第四欄：強硬遊戲規則防暴走(True) 或 劇情自由發展(False)")
+    enable_player_stats: bool = Field(default=False, description="第五欄：是否啟用玩家數值狀態")
+    initial_player_stats: str = Field(default="", description="玩家啟始數值狀態定義 (若啟用)")
 
 class GameProject(BaseModel):
     id: Optional[str] = Field(default="", description="遊戲專案 ID")
@@ -208,12 +210,15 @@ class GameTurnRequest(BaseModel):
     current_action: str = Field(..., description="玩家當前回合所選或輸入的行動")
     action_type: Optional[str] = Field(default="preset", description="preset 或 custom")
     history: List[GameTurnHistoryItem] = Field(default_factory=list, description="此前所有回合的冒險紀錄")
+    current_player_stats: Optional[str] = Field(default="", description="當前玩家數值狀態 (固定記憶)")
     custom_instruction: Optional[str] = Field(default="", description="額外自訂引導")
 
 class GameTurnResponse(BaseModel):
     story_continuation: str = Field(..., description="AI 接續生成的劇情發展")
     choices: List[GameChoiceOption] = Field(default_factory=list, description="下一輪可供玩家決策的選項列表")
     status_summary: Optional[str] = Field(default="", description="當前冒險狀態摘要 (如地點變更、局勢與心境)")
+    updated_player_stats: Optional[str] = Field(default="", description="經此回合推演更新後之玩家數值狀態 (固定記憶)")
+    stats_changes: Optional[str] = Field(default="", description="數值狀態變更說明 (如：生命值 -15)")
     round: int = Field(default=1, description="當前回合編號")
 
 

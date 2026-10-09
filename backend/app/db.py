@@ -199,6 +199,7 @@ def list_games() -> List[dict]:
                     "chapters_count": len(chapters),
                     "total_word_count": total_word_count,
                     "lore_items_count": len(data.get("lore_items", [])),
+                    "game_rules": data.get("game_rules"),
                     "updated_at": data.get("updated_at")
                 })
         except Exception as e:

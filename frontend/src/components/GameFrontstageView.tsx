@@ -5,7 +5,7 @@ import {
   Gamepad2, ArrowLeft, RotateCcw, Send, Sparkles, ShieldAlert, 
   BookOpen, Users, MapPin, Brain, Search, Clock, Compass, Layers, 
   CheckCircle2, ChevronRight, Loader2, AlertCircle, Settings, Download,
-  Save, Play
+  Save, Play, HeartPulse, Activity
 } from 'lucide-react';
 
 interface Props {
@@ -22,12 +22,15 @@ interface AdventureTurn {
   playerAction?: string;
   actionType?: 'preset' | 'custom';
   statusSummary?: string;
+  playerStats?: string;
+  statsChanges?: string;
 }
 
 interface GameAdventureSession {
   gameId: string;
   turns: AdventureTurn[];
   currentChoices: GameChoiceOption[];
+  playerStats?: string;
   updatedAt: string;
   roundCount: number;
 }
@@ -55,13 +58,15 @@ const loadSavedSession = (gameId: string): GameAdventureSession | null => {
 const saveAdventureSession = (
   gameId: string, 
   turns: AdventureTurn[], 
-  currentChoices: GameChoiceOption[]
+  currentChoices: GameChoiceOption[],
+  playerStats?: string
 ) => {
   try {
     const session: GameAdventureSession = {
       gameId,
       turns,
       currentChoices,
+      playerStats,
       updatedAt: new Date().toLocaleTimeString(),
       roundCount: turns.length
     };
@@ -113,6 +118,7 @@ export const GameFrontstageView: React.FC<Props> = ({
   // 冒險狀態歷程
   const [turns, setTurns] = useState<AdventureTurn[]>([]);
   const [currentChoices, setCurrentChoices] = useState<GameChoiceOption[]>([]);
+  const [currentPlayerStats, setCurrentPlayerStats] = useState<string>('');
   const [customInputText, setCustomInputText] = useState('');
   const [isAdvancingTurn, setIsAdvancingTurn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -144,6 +150,9 @@ export const GameFrontstageView: React.FC<Props> = ({
       if (saved && saved.turns.length > 0) {
         setTurns(saved.turns);
         setCurrentChoices(saved.currentChoices);
+        if (saved.playerStats) {
+          setCurrentPlayerStats(saved.playerStats);
+        }
         setLastSavedTime(saved.updatedAt);
 
         // 確保載入完整的遊戲資料
@@ -151,6 +160,9 @@ export const GameFrontstageView: React.FC<Props> = ({
           try {
             const g = await api.getGame(targetId);
             setPlayingGame(g);
+            if (!saved.playerStats && g.game_rules?.initial_player_stats) {
+              setCurrentPlayerStats(g.game_rules.initial_player_stats);
+            }
           } catch (e) {
             console.error('Failed to load active game on restore:', e);
           }
@@ -166,10 +178,10 @@ export const GameFrontstageView: React.FC<Props> = ({
     }
   }, []);
 
-  // 當 turns 或 choices 變化時，自動持久化至 localStorage
+  // 當 turns 或 choices 或 stats 變化時，自動持久化至 localStorage
   useEffect(() => {
     if (playingGame && turns.length > 0 && viewMode === 'play') {
-      saveAdventureSession(playingGame.id, turns, currentChoices);
+      saveAdventureSession(playingGame.id, turns, currentChoices, currentPlayerStats);
       const timeStr = new Date().toLocaleTimeString();
       setLastSavedTime(timeStr);
       try {
@@ -177,7 +189,7 @@ export const GameFrontstageView: React.FC<Props> = ({
         localStorage.setItem(VIEW_MODE_KEY, 'play');
       } catch {}
     }
-  }, [turns, currentChoices, playingGame, viewMode]);
+  }, [turns, currentChoices, currentPlayerStats, playingGame, viewMode]);
 
   // 切換回大廳
   const handleSwitchToLobby = () => {
@@ -212,6 +224,8 @@ export const GameFrontstageView: React.FC<Props> = ({
         // 恢復已有的冒險紀錄
         setTurns(existingSession.turns);
         setCurrentChoices(existingSession.currentChoices);
+        const restoredStats = existingSession.playerStats || gameData.game_rules?.initial_player_stats || '';
+        setCurrentPlayerStats(restoredStats);
         setLastSavedTime(existingSession.updatedAt);
         setCustomInputText('');
         setViewMode('play');
@@ -232,17 +246,23 @@ export const GameFrontstageView: React.FC<Props> = ({
             { id: 'opt-init-3', text: '嘗試尋找同伴或搜集情報', hint: '情報與社交' }
           ];
 
+      const initialStats = gameData.game_rules?.enable_player_stats
+        ? (gameData.game_rules?.initial_player_stats || '生命值: 100/100, 精神值: 100/100, 狀態: [正常]')
+        : '';
+      setCurrentPlayerStats(initialStats);
+
       const initialTurns: AdventureTurn[] = [
         {
           round: 1,
           storySegment: startingPlot,
+          playerStats: initialStats || undefined
         }
       ];
 
       setTurns(initialTurns);
       setCurrentChoices(startingOptions);
       setCustomInputText('');
-      saveAdventureSession(gameId, initialTurns, startingOptions);
+      saveAdventureSession(gameId, initialTurns, startingOptions, initialStats);
       setLastSavedTime(new Date().toLocaleTimeString());
       setViewMode('play');
     } catch (err: any) {
@@ -269,6 +289,10 @@ export const GameFrontstageView: React.FC<Props> = ({
     lines.push(`# 《${playingGame.title}》互動冒險遊玩紀錄\n`);
     lines.push(`- **遊戲類型**：${playingGame.genre} | **風格基調**：${playingGame.tone}`);
     lines.push(`- **規則模式**：${playingGame.game_rules?.strict_rule_enforcement ? '強硬遊戲規則（防暴走）' : '劇情自由發展'}`);
+    if (playingGame.game_rules?.enable_player_stats) {
+      lines.push(`- **玩家數值狀態**：已啟用`);
+      lines.push(`- **當前固定記憶狀態**：\n\`\`\`\n${currentPlayerStats || '無數值'}\n\`\`\``);
+    }
     lines.push(`- **總進行回合**：共 ${turns.length} 回合`);
     lines.push(`- **紀錄儲存時間**：${new Date().toLocaleString()}\n`);
     lines.push(`---\n`);
@@ -276,8 +300,15 @@ export const GameFrontstageView: React.FC<Props> = ({
     turns.forEach((t) => {
       lines.push(`## 【第 ${t.round} 回合】`);
       if (t.statusSummary) {
-        lines.push(`> 局勢摘要：${t.statusSummary}\n`);
+        lines.push(`> 局勢摘要：${t.statusSummary}`);
       }
+      if (t.statsChanges) {
+        lines.push(`> ⚡ 數值變動：${t.statsChanges}`);
+      }
+      if (t.playerStats && playingGame.game_rules?.enable_player_stats) {
+        lines.push(`> ❤️ 回合結算狀態：${t.playerStats.replace(/\n/g, ' | ')}`);
+      }
+      lines.push('');
       lines.push(`${t.storySegment}\n`);
       if (t.playerAction) {
         lines.push(`👉 **你的抉擇行動 (${t.actionType === 'custom' ? '自由輸入' : '預設選項'})**：${t.playerAction}\n`);
@@ -323,18 +354,28 @@ export const GameFrontstageView: React.FC<Props> = ({
     }));
 
     try {
+      const isStatsEnabled = Boolean(playingGame.game_rules?.enable_player_stats);
       const response = await api.playGameTurn({
         game_id: playingGame.id,
         current_action: actionText.trim(),
         action_type: actionType,
-        history: historyPayload
+        history: historyPayload,
+        current_player_stats: (isStatsEnabled && currentPlayerStats) ? currentPlayerStats : undefined
       });
 
-      // 3. 追加新一輪的劇情敘述與更新選項
+      // 3. 處理更新後玩家數值狀態
+      const nextStats = response.updated_player_stats || currentPlayerStats;
+      if (isStatsEnabled && response.updated_player_stats) {
+        setCurrentPlayerStats(response.updated_player_stats);
+      }
+
+      // 4. 追加新一輪的劇情敘述與更新選項
       const nextTurn: AdventureTurn = {
         round: response.round || currentRound + 1,
         storySegment: response.story_continuation,
-        statusSummary: response.status_summary
+        statusSummary: response.status_summary,
+        playerStats: isStatsEnabled ? nextStats : undefined,
+        statsChanges: response.stats_changes || undefined
       };
 
       const finalTurns = [...updatedTurns, nextTurn];
@@ -345,7 +386,7 @@ export const GameFrontstageView: React.FC<Props> = ({
       setCustomInputText('');
 
       // 立即持久化儲存
-      saveAdventureSession(playingGame.id, finalTurns, nextChoices);
+      saveAdventureSession(playingGame.id, finalTurns, nextChoices, isStatsEnabled ? nextStats : undefined);
       setLastSavedTime(new Date().toLocaleTimeString());
     } catch (err: any) {
       console.error('推進劇情失敗:', err);
@@ -515,6 +556,11 @@ export const GameFrontstageView: React.FC<Props> = ({
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-950/80 text-teal-300 border border-teal-500/30 backdrop-blur-sm">
                           {game.tone}
                         </span>
+                        {game.game_rules?.enable_player_stats && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-950/80 text-rose-300 border border-rose-500/40 backdrop-blur-sm flex items-center gap-1">
+                            <HeartPulse className="w-2.5 h-2.5 text-rose-400" /> 數值系統
+                          </span>
+                        )}
                       </div>
 
                       {/* 當前專案標記 */}
@@ -553,7 +599,7 @@ export const GameFrontstageView: React.FC<Props> = ({
                       </div>
 
                       {/* 元素統計 pills */}
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono pt-3 border-t border-slate-800/80">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono pt-3 border-t border-slate-800/80 flex-wrap">
                         <span className="flex items-center gap-1">
                           <MapPin className="w-3 h-3 text-emerald-400" />
                           {game.locations_count} 場景
@@ -568,6 +614,15 @@ export const GameFrontstageView: React.FC<Props> = ({
                           <Brain className="w-3 h-3 text-cyan-400" />
                           {game.lore_items_count || 0} 伏筆
                         </span>
+                        {game.game_rules?.enable_player_stats && (
+                          <>
+                            <span className="text-slate-600">•</span>
+                            <span className="flex items-center gap-1 text-rose-300">
+                              <Activity className="w-3 h-3 text-rose-400" />
+                              動態數值
+                            </span>
+                          </>
+                        )}
                       </div>
 
                       {/* 進入/繼續遊戲按鈕群 */}
@@ -671,6 +726,14 @@ export const GameFrontstageView: React.FC<Props> = ({
                 <span className={isStrict ? 'text-purple-400 font-semibold' : 'text-cyan-400 font-semibold'}>
                   {isStrict ? '🛡️ 強硬規則約束' : '✨ 自由發展模式'}
                 </span>
+                {playingGame?.game_rules?.enable_player_stats && (
+                  <>
+                    <span>•</span>
+                    <span className="text-rose-400 font-semibold flex items-center gap-1">
+                      <HeartPulse className="w-3 h-3 text-rose-400" /> 數值系統
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -745,6 +808,36 @@ export const GameFrontstageView: React.FC<Props> = ({
           </div>
         )}
 
+        {/* 玩家數值狀態看板 (常駐固定記憶 HUD) */}
+        {playingGame?.game_rules?.enable_player_stats && (
+          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-rose-950/40 via-slate-900/90 to-purple-950/40 border border-rose-500/40 shadow-xl relative overflow-hidden backdrop-blur-md">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-md">
+                  <HeartPulse className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs sm:text-sm font-bold text-rose-200">
+                      玩家當前數值狀態（常駐固定記憶）
+                    </h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      LIVE HUD
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    此數值狀態隨劇情發展即時演變，AI 將永遠鎖定此記憶判定生死、傷創與行動代價
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-3 bg-slate-950/90 rounded-xl border border-rose-500/20 font-mono text-xs text-rose-100 whitespace-pre-wrap leading-relaxed shadow-inner">
+              {currentPlayerStats || '（尚無數值紀錄）'}
+            </div>
+          </div>
+        )}
+
         {/* 故事動態對話滾動歷程 (Timeline Cards) */}
         <div className="space-y-6">
           {turns.map((turn) => {
@@ -765,11 +858,21 @@ export const GameFrontstageView: React.FC<Props> = ({
                   {/* 背景微光 */}
                   <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
-                  {/* 局勢狀態提示 (如有) */}
-                  {turn.statusSummary && (
-                    <div className="text-[11px] font-medium text-emerald-300/90 bg-emerald-950/40 px-3 py-1 rounded-lg border border-emerald-500/20 inline-flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>{turn.statusSummary}</span>
+                  {/* 局勢狀態與數值變動提示 */}
+                  {(turn.statusSummary || turn.statsChanges) && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {turn.statusSummary && (
+                        <div className="text-[11px] font-medium text-emerald-300/90 bg-emerald-950/40 px-3 py-1 rounded-lg border border-emerald-500/20 inline-flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>{turn.statusSummary}</span>
+                        </div>
+                      )}
+                      {turn.statsChanges && (
+                        <div className="text-[11px] font-medium text-amber-300/90 bg-amber-950/40 px-3 py-1 rounded-lg border border-amber-500/30 inline-flex items-center gap-1.5">
+                          <Activity className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>⚡ 數值變動：{turn.statsChanges}</span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -938,6 +1041,7 @@ export const GameFrontstageView: React.FC<Props> = ({
               <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-1.5 font-mono text-[11px]">
                 <p>約束模式：{isStrict ? '🛡️ 強硬遊戲規則（防暴走）' : '✨ 劇情自由發展'}</p>
                 <p>自創輸入：{allowCustom ? '✅ 開放玩家自由輸入' : '🔒 僅限預設選項'}</p>
+                <p>數值系統：{playingGame?.game_rules?.enable_player_stats ? '❤️ 已啟用（常駐固定記憶）' : '⚪ 未啟用'}</p>
                 {playingGame?.game_rules?.rules_text && (
                   <div className="pt-2 border-t border-slate-800 text-slate-400 whitespace-pre-wrap">
                     {playingGame.game_rules.rules_text}
@@ -945,6 +1049,18 @@ export const GameFrontstageView: React.FC<Props> = ({
                 )}
               </div>
             </div>
+
+            {/* 玩家數值狀態（固定記憶） */}
+            {playingGame?.game_rules?.enable_player_stats && (
+              <div className="space-y-2">
+                <span className="font-bold text-rose-300 flex items-center gap-1.5">
+                  <HeartPulse className="w-3.5 h-3.5 text-rose-400" /> 玩家當前數值狀態（固定記憶）
+                </span>
+                <div className="p-3 bg-slate-950/80 rounded-xl border border-rose-500/30 text-rose-200 font-mono text-[11px] whitespace-pre-wrap leading-relaxed">
+                  {currentPlayerStats || '（尚未記錄數值）'}
+                </div>
+              </div>
+            )}
 
             {/* 世界觀舞台 */}
             <div className="space-y-2">

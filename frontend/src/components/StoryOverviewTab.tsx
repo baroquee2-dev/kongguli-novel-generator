@@ -3,7 +3,8 @@ import type { Novel, GameRulesConfig } from '../types';
 import { 
   Sparkles, Loader2, BookOpen, Globe2, Compass, PenTool, Wand2, Flame, RotateCcw,
   Upload, Link as LinkIcon, Trash2, Image as ImageIcon,
-  Gamepad2, ScrollText, GitFork, MessageSquarePlus, ShieldAlert, ShieldCheck, AlertCircle
+  Gamepad2, ScrollText, GitFork, MessageSquarePlus, ShieldAlert, ShieldCheck, AlertCircle,
+  HeartPulse, Activity
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -73,7 +74,7 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
     }
   };
 
-  // 頂層遊戲規則設定狀態處理 (第一欄、第二欄、第三欄、第四欄)
+  // 頂層遊戲規則設定狀態處理 (第一欄至第五欄)
   const rawChoices = (novel.game_rules?.dialog_choices || [3]).filter(c => c !== 0);
   const allowCustomInput = novel.game_rules?.allow_custom_input ?? true;
   const gameRules: GameRulesConfig = {
@@ -83,6 +84,8 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
     strict_rule_enforcement: allowCustomInput 
       ? (novel.game_rules?.strict_rule_enforcement ?? true) 
       : true, // 若未開放玩家自行輸入，強制為強硬遊戲規則
+    enable_player_stats: novel.game_rules?.enable_player_stats ?? false,
+    initial_player_stats: novel.game_rules?.initial_player_stats || '',
   };
 
   const handleGameRulesChange = (partial: Partial<GameRulesConfig>) => {
@@ -117,7 +120,7 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
+    <div className={`${isGame ? 'max-w-7xl' : 'max-w-5xl'} mx-auto space-y-6 pb-12 animate-in fade-in duration-200`}>
       {/* 標題橫幅 */}
       <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl border shadow-xl ${
         isGame 
@@ -196,8 +199,8 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
             </div>
           </div>
 
-          {/* 四欄網格佈局 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          {/* 五欄網格佈局 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
             {/* 第一欄：自行輸入文字定義遊戲規則 */}
             <div className="flex flex-col p-4 rounded-xl bg-slate-950/75 border border-slate-800/90 hover:border-emerald-500/40 transition">
               <div className="flex items-center justify-between mb-2">
@@ -431,6 +434,76 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
                       {gameRules.strict_rule_enforcement ? '🛡️ 強硬規則約束中' : '✨ 自由發展模式'}
                     </span>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 第五欄：玩家數值狀態與固定記憶 */}
+            <div className="flex flex-col p-4 rounded-xl bg-slate-950/75 border border-slate-800/90 hover:border-pink-500/40 transition">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <HeartPulse className="w-4 h-4 text-pink-400" />
+                  <span>第五欄：玩家數值狀態</span>
+                </label>
+                <span className="text-[10px] font-mono text-pink-400/90 bg-pink-950/50 px-1.5 py-0.5 rounded border border-pink-500/30">固定記憶</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-2 leading-relaxed">
+                勾選是否啟用玩家數值狀態，數值將隨劇情演變並列入常駐固定記憶：
+              </p>
+
+              {/* 是否啟用核取按鈕 */}
+              <label className="flex items-center gap-2 p-2.5 rounded-lg border bg-slate-900/60 border-slate-800 hover:border-slate-700 cursor-pointer select-none transition mb-2.5">
+                <input
+                  type="checkbox"
+                  checked={gameRules.enable_player_stats === true}
+                  onChange={(e) => handleGameRulesChange({ enable_player_stats: e.target.checked })}
+                  className="rounded border-slate-700 text-pink-500 focus:ring-pink-500/20 bg-slate-950"
+                />
+                <span className={`text-xs font-semibold ${gameRules.enable_player_stats ? 'text-pink-300 font-bold' : 'text-slate-300'}`}>
+                  啟用玩家數值狀態系統
+                </span>
+              </label>
+
+              {/* 啟用時顯示啟始數值編輯區 */}
+              {gameRules.enable_player_stats ? (
+                <div className="flex-1 flex flex-col space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>輸入啟始數值與持有狀態：</span>
+                    <button
+                      type="button"
+                      onClick={() => handleGameRulesChange({
+                        initial_player_stats: '生命值: 100/100\n精神力: 100/100\n金幣: 50\n道具: [初級治療藥水 x2, 冒險者地圖]\n狀態: [正常]'
+                      })}
+                      className="text-pink-400 hover:text-pink-300 underline font-mono"
+                    >
+                      填入預設範本
+                    </button>
+                  </div>
+                  <textarea
+                    rows={5}
+                    value={gameRules.initial_player_stats || ''}
+                    onChange={(e) => handleGameRulesChange({ initial_player_stats: e.target.value })}
+                    placeholder="例如：&#10;生命值: 100/100&#10;精神力: 100/100&#10;金幣: 50&#10;道具: [初級治療藥劑 x2]&#10;狀態: [正常]"
+                    className="w-full flex-1 px-3 py-2 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-pink-500 resize-none font-mono leading-relaxed"
+                  />
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    💡 AI 每回合將以此作為最高優先級固定記憶，動態計算扣損、消耗與獲得。
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col justify-center items-center p-4 rounded-xl border border-dashed border-slate-800/80 bg-slate-900/20 text-center text-[11px] text-slate-500 space-y-1">
+                  <Activity className="w-5 h-5 text-slate-600" />
+                  <span>未啟用數值狀態</span>
+                  <span className="text-[10px] text-slate-600">（採純文字敘事模式）</span>
+                </div>
+              )}
+
+              <div className="mt-auto pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500">數值狀態：</span>
+                  <span className={`font-semibold ${gameRules.enable_player_stats ? 'text-pink-400' : 'text-slate-500'}`}>
+                    {gameRules.enable_player_stats ? '❤️ 常駐追蹤中' : '⚪ 未啟用'}
+                  </span>
                 </div>
               </div>
             </div>

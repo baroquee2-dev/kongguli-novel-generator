@@ -122,6 +122,8 @@ export interface GameRulesConfig {
   dialog_choices: number[];            // 第二欄：每回合對話選擇數 (3, 4, 5)
   allow_custom_input: boolean;         // 第三欄：是否允許玩家自行輸入劇情分歧
   strict_rule_enforcement: boolean;    // 第四欄：強硬遊戲規則防暴走(true) 或 劇情自由發展(false)
+  enable_player_stats?: boolean;       // 第五欄：是否啟用玩家數值狀態
+  initial_player_stats?: string;       // 玩家啟始數值狀態 (若啟用)
 }
 
 export interface GameProject extends Novel {
@@ -129,7 +131,7 @@ export interface GameProject extends Novel {
 }
 
 export interface GameListItem extends NovelListItem {
-  // 遊戲版專案列表項目
+  game_rules?: GameRulesConfig;
 }
 
 // ==================== 遊戲前台遊玩型別 ====================
@@ -145,6 +147,7 @@ export interface GameTurnRequest {
   current_action: string;
   action_type?: 'preset' | 'custom';
   history: GameTurnHistoryItem[];
+  current_player_stats?: string;
   custom_instruction?: string;
 }
 
@@ -152,6 +155,8 @@ export interface GameTurnResponse {
   story_continuation: string;
   choices: GameChoiceOption[];
   status_summary?: string;
+  updated_player_stats?: string;
+  stats_changes?: string;
   round: number;
 }
 

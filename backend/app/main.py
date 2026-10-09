@@ -575,6 +575,9 @@ async def api_ai_game_turn(req: GameTurnRequest):
 
     strict_enforcement = game_rules.strict_rule_enforcement if game_rules else True
     global_style = game.global_style_guide.strip() if (hasattr(game, 'global_style_guide') and game.global_style_guide) else ""
+    enable_player_stats = getattr(game_rules, 'enable_player_stats', False) if game_rules else False
+    initial_stats = getattr(game_rules, 'initial_player_stats', '') if game_rules else ''
+    current_player_stats = (req.current_player_stats or initial_stats or '生命值: 100/100, 狀態: [正常]').strip()
 
     # 2. 彙整世界觀與設定資訊
     chars_text = ""
@@ -618,8 +621,12 @@ async def api_ai_game_turn(req: GameTurnRequest):
         choice_count=target_choice_count,
         strict_rule_enforcement=strict_enforcement,
         rules_text=rules_text,
-        global_style_guide=global_style
+        global_style_guide=global_style,
+        enable_player_stats=enable_player_stats,
+        current_player_stats=current_player_stats if enable_player_stats else ""
     )
+
+    player_stats_block = f"""\n【玩家當前數值狀態（常駐固定記憶）】：\n{current_player_stats}\n（重要：請依據此回合發生的具體事件、受創或消耗，在 JSON 的 updated_player_stats 中更新此數值狀態，並在 stats_changes 簡述變更）\n""" if enable_player_stats else ""
 
     user_prompt = f"""【遊戲專案基本資訊】
 遊戲名稱：《{game.title}》
@@ -627,7 +634,7 @@ async def api_ai_game_turn(req: GameTurnRequest):
 風格基調：{game.tone}
 世界觀舞台：{game.world_background or "未特別定義，依類型發揮"}
 核心主線目標：{game.main_plot or "推進探索與解謎冒險"}
-
+{player_stats_block}
 【登場NPC角色庫】：
 {chars_text}
 
@@ -683,12 +690,16 @@ async def api_ai_game_turn(req: GameTurnRequest):
             })
 
         status_summary = data.get("status_summary", "")
+        updated_player_stats = data.get("updated_player_stats", "") if enable_player_stats else ""
+        stats_changes = data.get("stats_changes", "") if enable_player_stats else ""
         current_round = len(req.history) + 1
 
         return {
             "story_continuation": story_continuation.strip(),
             "choices": formatted_choices[:target_choice_count],
             "status_summary": status_summary,
+            "updated_player_stats": updated_player_stats.strip() if updated_player_stats else current_player_stats,
+            "stats_changes": stats_changes.strip(),
             "round": current_round
         }
     except Exception as e:

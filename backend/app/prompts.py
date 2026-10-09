@@ -189,6 +189,9 @@ GAME_TURN_SYSTEM = """你是一位極富臨場感與戲劇張力的互動式文�
 - 必須恰好提供 {choice_count} 個風格各異、具有實質策略取向的後續分歧選項（如：勇敢對抗、智取迂迴、謹慎探索、社交交涉、承擔風險等）。
 - 每個選項需附帶一句精練的「hint (分歧提示或預期風險)」，幫助玩家權衡決策。
 
+4. 【玩家數值狀態與固定記憶系統】：
+{player_stats_clause}
+
 請嚴格以 JSON 格式回應，格式如下：
 {{
   "story_continuation": "生動接續的劇情正文 (約 180~380 字，交代玩家行動帶來的直接後果與環境局勢演變)",
@@ -199,12 +202,21 @@ GAME_TURN_SYSTEM = """你是一位極富臨場感與戲劇張力的互動式文�
       "hint": "策略提示或潛在代價"
     }}
   ],
-  "status_summary": "當前局勢簡要一句話概括 (約 15~35 字，如：『已突破前哨防線，警報已被觸發，核心能量剩餘 60%』)"
+  "status_summary": "當前局勢簡要一句話概括 (約 15~35 字，如：『已突破前哨防線，警報已被觸發』)",
+  "updated_player_stats": "經情節演變後更新的玩家最新數值狀態 (若有啟用數值系統，務必維持條目格式並更新對應增減值；若未啟用則回傳空字串)",
+  "stats_changes": "簡短說明此回合之數值變更 (如：『受到毒刺攻擊，生命值 -15，中毒狀態 +1』；若無變動則回傳空字串)"
 }}
 只輸出純 JSON，不要附加任何額外 markdown 或說明。
 """
 
-def get_game_turn_prompt(choice_count: int = 3, strict_rule_enforcement: bool = True, rules_text: str = "", global_style_guide: str = "") -> str:
+def get_game_turn_prompt(
+    choice_count: int = 3, 
+    strict_rule_enforcement: bool = True, 
+    rules_text: str = "", 
+    global_style_guide: str = "",
+    enable_player_stats: bool = False,
+    current_player_stats: str = ""
+) -> str:
     style_block = format_global_style_block(global_style_guide)
     
     if strict_rule_enforcement:
@@ -217,10 +229,17 @@ def get_game_turn_prompt(choice_count: int = 3, strict_rule_enforcement: bool = 
     else:
         custom_clause = "【📜 創作者自訂通用規則】：\\n遵循本世界之常理、因果律與生命物理法則。"
 
+    if enable_player_stats:
+        stats_text = current_player_stats.strip() if current_player_stats and current_player_stats.strip() else "生命值: 100/100, 狀態: [正常]"
+        player_stats_clause = f"""- 本遊戲啟用了【玩家數值狀態系統 (常駐固定記憶)】。\\n- 玩家當前數值狀態如下：\\n「{stats_text}」\\n- 【重要因果律】：請務必將此數值狀態視為最高優先級固定記憶！\\n  1. 玩家的每一次行動、受創、施法、交易或使用物品，必須在劇情中即時產生相應的數值代價或收益。\\n  2. 嚴格遵守數值限制：例如生命值歸零則必須判定死亡/失去行動能力；法力或金幣不足則無法發動相應法術或購買物品；持有特定關鍵道具時方可進行對應行動。\\n  3. 請在 JSON 的 `updated_player_stats` 中輸出扣減或增加後的「最新完整數值狀態文字」，並在 `stats_changes` 簡述本回合變動。"""
+    else:
+        player_stats_clause = "- 本遊戲未啟用數值狀態系統，採純敘事文字冒險推進。"
+
     base = GAME_TURN_SYSTEM.format(
         choice_count=choice_count,
         rule_enforcement_clause=rule_clause,
-        custom_rules_clause=custom_clause
+        custom_rules_clause=custom_clause,
+        player_stats_clause=player_stats_clause
     )
     return f"{style_block}\\n{base}" if style_block else base
 
