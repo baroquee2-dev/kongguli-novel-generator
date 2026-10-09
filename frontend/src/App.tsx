@@ -7,6 +7,7 @@ import { StoryOverviewTab } from './components/StoryOverviewTab';
 import { LocationsTab } from './components/LocationsTab';
 import { CharactersTab } from './components/CharactersTab';
 import { ChaptersTab } from './components/ChaptersTab';
+import { GameLevelTab } from './components/GameLevelTab';
 import { LorebookTab } from './components/LorebookTab';
 import { FrontstageView } from './components/FrontstageView';
 import { 
@@ -541,11 +542,9 @@ export const App: React.FC = () => {
                 <LorebookTab novel={currentGame} onChange={handleGameChange} />
               )}
               {activeGameTab === 'chapters' && (
-                <ChaptersTab 
-                  novel={currentGame} 
+                <GameLevelTab 
+                  game={currentGame} 
                   onChange={handleGameChange} 
-                  settings={settings}
-                  onOpenSettings={() => setIsSettingsOpen(true)}
                 />
               )}
             </>

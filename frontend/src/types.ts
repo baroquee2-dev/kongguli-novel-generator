@@ -49,6 +49,12 @@ export interface LoreItem {
   is_enabled: boolean;
 }
 
+export interface GameChoiceOption {
+  id: string;
+  text: string;
+  hint?: string;
+}
+
 export interface Chapter {
   id: string;
   chapter_number: number;
@@ -61,6 +67,8 @@ export interface Chapter {
   content: string;
   word_count: number;
   summary?: string;
+  starting_plot?: string;
+  starting_options?: GameChoiceOption[];
 }
 
 export interface Novel {

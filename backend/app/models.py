@@ -59,7 +59,12 @@ class LoreItem(BaseModel):
     is_constant: bool = Field(default=False, description="是否常駐生效 (無需關鍵字，每一章均注入)")
     is_enabled: bool = Field(default=True, description="是否啟用")
 
-# ==================== 第 5 層：章節系統 ====================
+# ==================== 第 5 層：章節與關卡系統 ====================
+class GameChoiceOption(BaseModel):
+    id: str = Field(default="", description="選項 ID")
+    text: str = Field(default="", description="選項內容")
+    hint: Optional[str] = Field(default="", description="選項後續引導或預期後果說明")
+
 class Chapter(BaseModel):
     id: Optional[str] = Field(default="", description="章節 ID")
     chapter_number: int = Field(default=1, description="章節序號")
@@ -72,6 +77,8 @@ class Chapter(BaseModel):
     content: str = Field(default="", description="正文內容")
     word_count: int = Field(default=0, description="章節字數")
     summary: Optional[str] = Field(default="", description="章節後續劇情小結 (供後續章節銜接)")
+    starting_plot: Optional[str] = Field(default="", description="遊戲關卡啟始劇情")
+    starting_options: Optional[List[GameChoiceOption]] = Field(default_factory=list, description="遊戲關卡啟始選項列表")
 
 # ==================== 第 1 層：小說主體 ====================
 class Novel(BaseModel):
