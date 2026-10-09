@@ -104,3 +104,14 @@ export interface RecalledScene {
   reason: string;
   characters: string[];
 }
+
+// ==================== 獨立遊戲版型別 ====================
+export type SystemMode = 'novel' | 'game';
+
+export interface GameProject extends Novel {
+  // 遊戲版第一版架構與小說保持同構，未來可擴充遊戲專屬屬性如：分支選擇、變數數值、立繪表情等
+}
+
+export interface GameListItem extends NovelListItem {
+  // 遊戲版專案列表項目
+}

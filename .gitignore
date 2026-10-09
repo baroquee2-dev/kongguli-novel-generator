@@ -22,6 +22,8 @@ frontend/dist-ssr/
 data/settings.json
 data/novels/*
 !data/novels/.gitkeep
+data/games/*
+!data/games/.gitkeep
 data/uploads/*
 !data/uploads/.gitkeep
 data/*.db

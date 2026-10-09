@@ -1,4 +1,4 @@
-import type { AISettings, Novel, NovelListItem, Location, Character, LoreItem, RecalledScene } from '../types';
+import type { AISettings, Novel, NovelListItem, GameProject, GameListItem, Location, Character, LoreItem, RecalledScene } from '../types';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -81,6 +81,52 @@ export const api = {
   },
   getExportUrl(id: string): string {
     return `${API_BASE}/novels/${id}/export`;
+  },
+
+  // 獨立遊戲版專案 CRUD
+  async listGames(): Promise<GameListItem[]> {
+    const res = await fetch(`${API_BASE}/games`);
+    if (!res.ok) throw new Error('獲取遊戲專案列表失敗');
+    return res.json();
+  },
+  async getGame(id: string): Promise<GameProject> {
+    const res = await fetch(`${API_BASE}/games/${id}`);
+    if (!res.ok) throw new Error('載入遊戲專案失敗');
+    return res.json();
+  },
+  async saveGame(game: GameProject): Promise<GameProject> {
+    const res = await fetch(`${API_BASE}/games/${game.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(game),
+    });
+    if (!res.ok) throw new Error('保存遊戲專案失敗');
+    return res.json();
+  },
+  async createGame(game: Partial<GameProject>): Promise<GameProject> {
+    const res = await fetch(`${API_BASE}/games`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(game),
+    });
+    if (!res.ok) throw new Error('建立遊戲專案失敗');
+    return res.json();
+  },
+  async deleteGame(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/games/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('刪除遊戲專案失敗');
+  },
+  async initSampleGame(): Promise<GameProject> {
+    const res = await fetch(`${API_BASE}/games/init-sample`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('建立示範遊戲失敗');
+    return res.json();
+  },
+  getExportGameUrl(id: string): string {
+    return `${API_BASE}/games/${id}/export`;
   },
 
   // 圖片上傳

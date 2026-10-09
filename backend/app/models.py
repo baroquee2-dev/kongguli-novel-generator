@@ -93,6 +93,26 @@ class Novel(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
+# ==================== 獨立遊戲版專案模型 ====================
+class GameProject(BaseModel):
+    id: Optional[str] = Field(default="", description="遊戲專案 ID")
+    title: str = Field(default="未命名遊戲專案", description="遊戲名稱")
+    genre: str = Field(default="文字冒險RPG", description="遊戲類型 (如：文字冒險、互動RPG、視覺小說、地牢冒險)")
+    tone: str = Field(default="沉浸互動", description="遊戲風格與基調 (如：探索冒險、緊張懸疑、輕鬆幽默)")
+    main_plot: str = Field(default="", description="主要劇情架構 / 主線任務與目標")
+    world_background: str = Field(default="", description="世界觀概述與遊戲舞台設定")
+    cover_url: Optional[str] = Field(default="", description="遊戲封面/海報圖片 URL (支援本地上傳或外部連結)")
+    global_style_guide: Optional[str] = Field(
+        default="", 
+        description="全域 AI 文字風格與對話行文規範"
+    )
+    locations: List[Location] = Field(default_factory=list, description="第 2 層：世界場景與地圖清單")
+    characters: List[Character] = Field(default_factory=list, description="第 3 層：NPC角色與立繪清單")
+    lore_items: List[LoreItem] = Field(default_factory=list, description="第 4 層：記憶伏筆與世界書卡片")
+    chapters: List[Chapter] = Field(default_factory=list, description="第 5 層：章節流程與關卡清單")
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
 # ==================== AI 請求模型 ====================
 class GenerateOutlineRequest(BaseModel):
     title: Optional[str] = ""

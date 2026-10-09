@@ -3,8 +3,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from app.config import NOVELS_DIR
-from app.models import Novel
+from app.config import NOVELS_DIR, GAMES_DIR
+from app.models import Novel, GameProject
 
 def list_novels() -> List[dict]:
     novels = []
@@ -173,3 +173,167 @@ def create_sample_novel() -> Novel:
         ]
     )
     return save_novel(novel)
+
+# ==================== 獨立遊戲版資料庫存取 ====================
+def list_games() -> List[dict]:
+    # 若遊戲資料夾為空，自動產生一個示範遊戲專案
+    if not any(GAMES_DIR.glob("*.json")):
+        create_sample_game()
+
+    games = []
+    for file in GAMES_DIR.glob("*.json"):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                chapters = data.get("chapters", [])
+                total_word_count = sum(c.get("word_count") or len(c.get("content", "").replace(" ", "").replace("\n", "")) for c in chapters)
+                games.append({
+                    "id": data.get("id"),
+                    "title": data.get("title", "未命名遊戲專案"),
+                    "genre": data.get("genre", "文字冒險RPG"),
+                    "tone": data.get("tone", "沉浸互動"),
+                    "main_plot": data.get("main_plot", ""),
+                    "cover_url": data.get("cover_url", ""),
+                    "locations_count": len(data.get("locations", [])),
+                    "characters_count": len(data.get("characters", [])),
+                    "chapters_count": len(chapters),
+                    "total_word_count": total_word_count,
+                    "lore_items_count": len(data.get("lore_items", [])),
+                    "updated_at": data.get("updated_at")
+                })
+        except Exception as e:
+            print(f"Error reading game {file}: {e}")
+    # 按照更新時間降序排列
+    games.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
+    return games
+
+def get_game(game_id: str) -> Optional[GameProject]:
+    file_path = GAMES_DIR / f"{game_id}.json"
+    if not file_path.exists():
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return GameProject(**data)
+    except Exception as e:
+        print(f"Error reading game {game_id}: {e}")
+        return None
+
+def save_game(game: GameProject) -> GameProject:
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not game.created_at:
+        game.created_at = now_str
+    game.updated_at = now_str
+    
+    file_path = GAMES_DIR / f"{game.id}.json"
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(game.model_dump(), f, ensure_ascii=False, indent=2)
+    return game
+
+def delete_game(game_id: str) -> bool:
+    file_path = GAMES_DIR / f"{game_id}.json"
+    if file_path.exists():
+        file_path.unlink()
+        return True
+    return False
+
+def create_sample_game() -> GameProject:
+    """初始化一個示範遊戲作品，展示遊戲版獨立架構"""
+    game_id = str(uuid.uuid4())[:8]
+    game = GameProject(
+        id=game_id,
+        title="時空迴廊：命運的七重抉擇",
+        genre="日系科幻互動RPG",
+        tone="時空穿梭、因果律抉擇、情感冒險",
+        main_plot="在2142年新東京地下深處的『克羅諾斯時空觀測所』，時空信標突然出現逆流崩潰。身為第七執行官的主角必須穿越至七個不同的歷史分歧點，在多位具有特殊異能的同伴協助下，修復時空因果線，並在最後揭發觀測所所長企圖重塑全人類記憶的黑暗真相。",
+        world_background="世界由『量子因果律網絡』維持穩定，少數覺醒者能感知世界線變動率。時空穿梭裝置由『反重力晶核』與『虛數神經連接器』驅動。",
+        global_style_guide="電影感臨場體驗，對話具備強烈性格色彩，關鍵選項與分支抉擇富有戲劇張力；場景渲染科技神秘質感。",
+        locations=[
+            {
+                "id": "loc-g1",
+                "name": "克羅諾斯中央樞紐觀測所",
+                "description": "懸浮於地下千米的量子超導環狀研究所，藍白冷光在金屬牆面流轉，中心懸浮著巨大的因果律回環儀。",
+                "sub_locations": [
+                    {
+                        "id": "subloc-g1-1",
+                        "name": "第七因果中樞控制室",
+                        "description": "無數全息螢幕閃爍著世界線變動指數，赤紅色的錯誤警告字樣在半空中狂暴跳動。"
+                    },
+                    {
+                        "id": "subloc-g1-2",
+                        "name": "虛數躍遷整備艙",
+                        "description": "排列整齊的浸入式神經冷卻艙，周圍瀰漫著液氮霧氣與低頻嗡鳴。"
+                    }
+                ]
+            },
+            {
+                "id": "loc-g2",
+                "name": "雨幕之街・新澀谷下層區",
+                "description": "永無止境的霓虹酸雨都市，賽博義體改造黑市與地下反抗軍據點藏匿在交錯的高架管道下方。",
+                "sub_locations": [
+                    {
+                        "id": "subloc-g2-1",
+                        "name": "白夜黑客秘密地下室",
+                        "description": "堆滿各型號拆解終端與全息鏡頭的凌亂密室，空氣中充斥著焊錫與速溶咖啡的苦味。"
+                    }
+                ]
+            }
+        ],
+        characters=[
+            {
+                "id": "char-g1",
+                "name": "神崎 綾乃",
+                "role": "女主角 / 量子觀測員",
+                "gender": "女性",
+                "age": "19",
+                "appearance": "及肩深藍短髮，眼眸帶著微弱淡金微光，身著白色觀測官制服與高領防護風衣。",
+                "profile": "克羅諾斯研究所的天才觀測員。擁有罕見的「因果直覺感知」天賦，性格表面冷靜理性，內心重視伙伴勝過一切。",
+                "avatar_url": ""
+            },
+            {
+                "id": "char-g2",
+                "name": "黑羽 雷恩",
+                "role": "戰術遊俠 / 破行者",
+                "gender": "男性",
+                "age": "24",
+                "appearance": "黑色短髮帶有凌亂碎髮，左臂為軍用型高頻電磁義肢，黑色戰術防彈風衣。",
+                "profile": "原特勤作戰隊尖兵，因反對所長的非人道重塑實驗而叛逃。行事果決凌厲，關鍵時刻最可靠的前線護衛。",
+                "avatar_url": ""
+            }
+        ],
+        lore_items=[
+            {
+                "id": "lore-g1",
+                "title": "因果律變動率計 (Divergence Gauge)",
+                "category": "核心神兵",
+                "keywords": ["變動率", "世界線", "指針", "數值", "因果"],
+                "content": "神崎綾乃隨身佩戴的黃銅量子計數儀。當數值超過1.000000%時，代表成功突破當前世界線的既定滅絕命運。",
+                "is_constant": True,
+                "is_enabled": True
+            },
+            {
+                "id": "lore-g2",
+                "title": "虛數記憶格式化協議",
+                "category": "最高機密",
+                "keywords": ["格式化", "洗腦", "重塑", "記憶抹除"],
+                "content": "克羅諾斯所長私自啟動的黑箱程序，能藉由時空回流洗去全人類對災厄的記憶，以虛假的平靜換取絕對統治。",
+                "is_constant": False,
+                "is_enabled": True
+            }
+        ],
+        chapters=[
+            {
+                "id": "chap-g1",
+                "chapter_number": 1,
+                "title": "序章：紅光警報下的第 0 號分歧點",
+                "outline": "第七因果觀測室警報大作，變動率跌落至危險臨界點。綾乃在儀表板前驚呼，主角必須在時空崩解前選擇攜帶核心資料逃生或啟動手動穩定閥...",
+                "selected_location_ids": ["loc-g1"],
+                "selected_sub_location_ids": ["subloc-g1-1"],
+                "selected_character_ids": ["char-g1", "char-g2"],
+                "content": "刺耳的防空級警報撕裂了克羅諾斯觀測所的死寂。\n\n全息中樞環上的數值正以恐怖的速度向下跌落——「0.4819%... 0.3120%...」紅芒將第七因果控制室映照得猶如血海。\n\n「執行官！主因果線正在崩潰！」神崎綾乃纖細的手指在虛擬光鍵上疾風般敲擊，及肩深藍短髮隨氣流飛舞，淡金色的瞳孔中倒映著劇烈顫抖的波形，「有人在外部錨點切斷了世界線鏈路... 如果變動率跌破零，整個新東京將被虛數空間徹底吞噬！」\n\n『別慌，綾乃。』黑羽雷恩冷冽的嗓音從厚重合金防爆門後傳來。他單手甩開電磁刃，幽藍的高頻粒子在刀尖嗡嗡作響，『外圍防線已經被不明武裝者攻破，他們不是衝著研究員來的——目標是中央發動機裡的變動率計！』\n\n腳下的超導地板劇烈震動，管線中噴湧出刺骨的液氮白霧。命運的十字路口已然展開，留給執行官抉擇的時間，僅剩最後三十秒。",
+                "word_count": 395,
+                "summary": "第七觀測室遭遇未知武裝襲擊，因果線變動率暴跌，主角、綾乃與雷恩面臨緊急撤離或啟動手動閥的生死抉擇。"
+            }
+        ]
+    )
+    return save_game(game)

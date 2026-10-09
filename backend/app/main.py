@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.models import (
-    AISettings, Novel, Location, Character, Chapter, LoreItem,
+    AISettings, Novel, GameProject, Location, Character, Chapter, LoreItem,
     GenerateOutlineRequest, GenerateLocationsRequest,
     GenerateCharactersRequest, GenerateChapterRequest,
     ContinueWritingRequest, GenerateChapterSummaryRequest,
@@ -18,11 +18,28 @@ from app.models import (
 )
 from app.config import get_settings, save_settings, UPLOADS_DIR
 from app.db import (
-    list_novels, get_novel, save_novel, delete_novel, create_sample_novel
+    list_novels, get_novel, save_novel, delete_novel, create_sample_novel,
+    list_games, get_game, save_game, delete_game, create_sample_game
 )
 from app.ai_service import AIService, clean_json_string, extract_json_data
 from app.rag_service import RAGService
 from app import prompts
+
+def get_project_or_game(project_id: str):
+    """查詢小說或遊戲專案 (優先查詢小說，若無則查詢遊戲)"""
+    n = get_novel(project_id)
+    if n:
+        return n
+    g = get_game(project_id)
+    if g:
+        return g
+    return None
+
+def save_project_or_game(project):
+    """依據專案類型自動儲存至小說或遊戲資料夾"""
+    if isinstance(project, GameProject):
+        return save_game(project)
+    return save_novel(project)
 
 app = FastAPI(title="KongGuLi-孔固力自動小說生成器 API", version="1.0.0")
 
@@ -148,6 +165,74 @@ async def api_export_novel(novel_id: str):
     return PlainTextResponse(
         content,
         headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}; filename=\"export.md\""}
+    )
+
+# ==================== 2.5 遊戲專案 CRUD API ====================
+@app.get("/api/games")
+async def api_list_games():
+    games = list_games()
+    if not games:
+        create_sample_game()
+        games = list_games()
+    return games
+
+@app.post("/api/games", response_model=GameProject)
+async def api_create_game(game: GameProject):
+    if not game.id:
+        game.id = str(uuid.uuid4())[:8]
+    return save_game(game)
+
+@app.get("/api/games/{game_id}", response_model=GameProject)
+async def api_get_game(game_id: str):
+    g = get_game(game_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="找不到指定遊戲專案")
+    return g
+
+@app.put("/api/games/{game_id}", response_model=GameProject)
+async def api_update_game(game_id: str, game: GameProject):
+    game.id = game_id
+    saved = save_game(game)
+    return saved
+
+@app.delete("/api/games/{game_id}")
+async def api_delete_game(game_id: str):
+    success = delete_game(game_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="找不到指定遊戲專案")
+    return {"success": True}
+
+@app.post("/api/games/init-sample", response_model=GameProject)
+async def api_init_sample_game():
+    return create_sample_game()
+
+@app.get("/api/games/{game_id}/export", response_class=PlainTextResponse)
+async def api_export_game(game_id: str):
+    """匯出遊戲全書/流程為 Markdown / TXT 格式"""
+    g = get_game(game_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="找不到指定遊戲專案")
+    
+    lines = []
+    lines.append(f"# {g.title} (遊戲專案文檔)\n")
+    lines.append(f"**遊戲類型**：{g.genre}  |  **風格基調**：{g.tone}\n")
+    lines.append(f"## 【遊戲世界舞台】\n{g.world_background}\n")
+    lines.append(f"## 【主線劇情與目標】\n{g.main_plot}\n")
+    lines.append("\n---\n")
+    
+    sorted_chapters = sorted(g.chapters, key=lambda c: c.chapter_number)
+    for chap in sorted_chapters:
+        lines.append(f"\n## 第 {chap.chapter_number} 關/章：{chap.title}\n")
+        if chap.outline:
+            lines.append(f"> 【關卡大綱】: {chap.outline}\n")
+        lines.append(f"\n{chap.content}\n")
+        lines.append("\n")
+    
+    content = "\n".join(lines)
+    encoded_filename = urllib.parse.quote(f"{g.title}.md")
+    return PlainTextResponse(
+        content,
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}; filename=\"game_export.md\""}
     )
 
 # ==================== 3. 圖片上傳 API ====================
@@ -312,9 +397,9 @@ async def api_ai_generate_characters(req: GenerateCharactersRequest):
 # 【第 4 層核心】融合全部設定，一鍵生成章節正文
 @app.post("/api/ai/generate-chapter")
 async def api_ai_generate_chapter(req: GenerateChapterRequest):
-    novel = get_novel(req.novel_id)
+    novel = get_project_or_game(req.novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到指定小說或遊戲專案")
     
     chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
     if not chapter:
@@ -411,9 +496,9 @@ async def api_ai_generate_chapter(req: GenerateChapterRequest):
 # 【續寫 API】
 @app.post("/api/ai/continue-writing")
 async def api_ai_continue_writing(req: ContinueWritingRequest):
-    novel = get_novel(req.novel_id)
+    novel = get_project_or_game(req.novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到指定小說或遊戲專案")
     
     chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
     
@@ -594,9 +679,9 @@ def build_lorebook_context(novel: Novel, chapter: Chapter, custom_instruction: s
 
 @app.post("/api/ai/generate-chapter-stream")
 async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
-    novel = get_novel(req.novel_id)
+    novel = get_project_or_game(req.novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到指定小說或遊戲專案")
     
     chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
     if not chapter:
@@ -704,9 +789,9 @@ async def api_ai_generate_chapter_stream(req: GenerateChapterRequest):
 
 @app.post("/api/ai/continue-writing-stream")
 async def api_ai_continue_writing_stream(req: ContinueWritingRequest):
-    novel = get_novel(req.novel_id)
+    novel = get_project_or_game(req.novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到指定小說或遊戲專案")
     
     chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
     prev_text = req.current_content[-1200:] if len(req.current_content) > 1200 else req.current_content
@@ -774,9 +859,9 @@ async def api_ai_continue_writing_stream(req: ContinueWritingRequest):
 
 @app.post("/api/ai/generate-chapter-summary")
 async def api_ai_generate_chapter_summary(req: GenerateChapterSummaryRequest):
-    novel = get_novel(req.novel_id)
+    novel = get_project_or_game(req.novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到指定小說或遊戲專案")
         
     chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
     if not chapter:
@@ -809,7 +894,7 @@ async def api_ai_generate_chapter_summary(req: GenerateChapterSummaryRequest):
         )
         clean_summary = summary.strip().replace("\n", " ")
         chapter.summary = clean_summary
-        save_novel(novel)
+        save_project_or_game(novel)
         return {"summary": clean_summary, "novel": novel}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提煉小結失敗: {str(e)}")
@@ -819,9 +904,9 @@ async def api_ai_generate_chapter_summary(req: GenerateChapterSummaryRequest):
 
 @app.post("/api/ai/analyze-lore-items")
 async def api_ai_analyze_lore_items(req: AnalyzeLoreItemsRequest):
-    novel = get_novel(req.novel_id)
+    novel = get_project_or_game(req.novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到指定小說或遊戲專案")
         
     global_style = novel.global_style_guide.strip() if novel.global_style_guide else ""
     sys_prompt = prompts.get_lore_analyze_prompt(req.count or 4, global_style)
@@ -885,10 +970,11 @@ async def api_ai_analyze_lore_items(req: AnalyzeLoreItemsRequest):
 
 
 @app.get("/api/novels/{novel_id}/chapters/{chapter_id}/preview-lore")
+@app.get("/api/games/{novel_id}/chapters/{chapter_id}/preview-lore")
 async def api_preview_chapter_lore(novel_id: str, chapter_id: str):
-    novel = get_novel(novel_id)
+    novel = get_project_or_game(novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到小說或遊戲專案")
     chapter = next((c for c in novel.chapters if c.id == chapter_id), None)
     if not chapter:
         raise HTTPException(status_code=404, detail="找不到指定章節")
@@ -905,9 +991,9 @@ async def api_preview_chapter_lore(novel_id: str, chapter_id: str):
 
 @app.post("/api/ai/rag/query", response_model=List[RecalledScene])
 async def api_query_rag(req: QueryRagRequest):
-    novel = get_novel(req.novel_id)
+    novel = get_project_or_game(req.novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到小說或遊戲專案")
     chapter = next((c for c in novel.chapters if c.id == req.chapter_id), None)
     if not chapter:
         raise HTTPException(status_code=404, detail="找不到指定章節")
@@ -921,10 +1007,11 @@ async def api_query_rag(req: QueryRagRequest):
 
 
 @app.get("/api/novels/{novel_id}/chapters/{chapter_id}/preview-rag")
+@app.get("/api/games/{novel_id}/chapters/{chapter_id}/preview-rag")
 async def api_preview_chapter_rag(novel_id: str, chapter_id: str, hint: Optional[str] = ""):
-    novel = get_novel(novel_id)
+    novel = get_project_or_game(novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到小說或遊戲專案")
     chapter = next((c for c in novel.chapters if c.id == chapter_id), None)
     if not chapter:
         raise HTTPException(status_code=404, detail="找不到指定章節")
@@ -944,14 +1031,14 @@ async def api_preview_chapter_rag(novel_id: str, chapter_id: str, hint: Optional
 
 @app.post("/api/ai/rag/reindex/{novel_id}")
 async def api_reindex_novel_rag(novel_id: str, background_tasks: BackgroundTasks):
-    novel = get_novel(novel_id)
+    novel = get_project_or_game(novel_id)
     if not novel:
-        raise HTTPException(status_code=404, detail="找不到小說專案")
+        raise HTTPException(status_code=404, detail="找不到小說或遊戲專案")
         
     background_tasks.add_task(RAGService.index_novel, novel)
     return {
         "status": "ok",
-        "message": f"已在背景排程重構《{novel.title}》的全書 RAG 向量索引庫"
+        "message": f"已在背景排程重構《{novel.title}》的全域 RAG 向量索引庫"
     }
 
 

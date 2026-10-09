@@ -6,11 +6,13 @@ from app.models import AISettings
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 NOVELS_DIR = DATA_DIR / "novels"
+GAMES_DIR = DATA_DIR / "games"
 UPLOADS_DIR = DATA_DIR / "uploads"
 
 # 確保目錄存在
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 NOVELS_DIR.mkdir(parents=True, exist_ok=True)
+GAMES_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_SETTINGS = AISettings(
