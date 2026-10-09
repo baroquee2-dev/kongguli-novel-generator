@@ -800,12 +800,12 @@ export const GameFrontstageView: React.FC<Props> = ({
                     className="absolute inset-0 w-full h-full object-cover object-center filter blur-3xl opacity-15"
                   />
 
-                  {/* 主體展示層：縮小並完整居中呈現 (object-contain，完整看到角色與封面全貌) */}
-                  <div className="absolute inset-0 flex items-center justify-center p-8 sm:p-14 md:p-20">
+                  {/* 主體展示層：自動適應瀏覽器邊框，剛好放大至長邊或寬邊觸碰到瀏覽器邊界 (100% object-contain) */}
+                  <div className="absolute inset-0 flex items-center justify-center">
                     <img
                       src={slide.url}
                       alt={slide.label}
-                      className="max-h-[62vh] sm:max-h-[70vh] max-w-[85vw] sm:max-w-[65vw] w-auto h-auto object-contain filter saturate-105 brightness-95 opacity-40 drop-shadow-[0_10px_35px_rgba(0,0,0,0.8)] transition-transform duration-[8000ms] ease-out"
+                      className="w-full h-full object-contain object-center filter saturate-105 brightness-95 opacity-45 drop-shadow-[0_10px_35px_rgba(0,0,0,0.8)]"
                     />
                   </div>
                 </div>
