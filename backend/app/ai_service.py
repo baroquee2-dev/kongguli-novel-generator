@@ -6,54 +6,211 @@ from app.models import AISettings
 from app.config import get_settings
 
 def clean_json_string(text: str) -> str:
-    """清理 AI 回傳的 Markdown 程式碼區塊標記，提取純 JSON"""
+    """清理 AI 回傳的思考標籤、Markdown 程式碼區塊標記，提取純 JSON 候選內容"""
+    if not text:
+        return ""
     text = text.strip()
+    # 移除 <think>...</think> 思考過程標籤 (部分推理思考模型)
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
     # 移除 ```json 或 ```
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
     if match:
         return match.group(1).strip()
     return text
 
+
+def repair_json_string(candidate: str) -> str:
+    """嘗試修復常見的無效 JSON 格式（如尾隨逗號、未閉合字串/括號等截斷情況）"""
+    if not candidate:
+        return ""
+    # 1. 移除尾隨逗號：例如 {"a": 1,} -> {"a": 1} 或 [1, 2,] -> [1, 2]
+    fixed = re.sub(r',\s*([\]}])', r'\1', candidate)
+    
+    # 2. 檢測並補齊未閉合的引號與括號（因截斷引發的語法破損）
+    in_string = False
+    escape = False
+    open_braces = 0
+    open_brackets = 0
+    for char in fixed:
+        if escape:
+            escape = False
+            continue
+        if char == '\\':
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+        elif not in_string:
+            if char == '{':
+                open_braces += 1
+            elif char == '}':
+                open_braces = max(0, open_braces - 1)
+            elif char == '[':
+                open_brackets += 1
+            elif char == ']':
+                open_brackets = max(0, open_brackets - 1)
+    
+    # 若在字串中中斷，補齊雙引號
+    if in_string:
+        fixed += '"'
+    # 補齊中括號
+    while open_brackets > 0:
+        fixed += ']'
+        open_brackets -= 1
+    # 補齊大括號
+    while open_braces > 0:
+        fixed += '}'
+        open_braces -= 1
+        
+    return fixed
+
+
+def extract_game_turn_fallback(text: str) -> Optional[Dict[str, Any]]:
+    """
+    終極救援提取器：當 JSON 語法嚴重破損、包含未轉義字元或截斷時，用強健正則直接救援出核心劇情與選項
+    """
+    if not text or not text.strip():
+        return None
+        
+    result: Dict[str, Any] = {}
+    
+    # 1. 提取 story_continuation
+    story_match = re.search(
+        r'"(?:story_continuation|story)"\s*:\s*"([\s\S]*?)(?=",\s*"(?:choices|options|status_summary|updated_player_stats|stats_changes)"|"\s*}|$)', 
+        text
+    )
+    if story_match:
+        story_text = story_match.group(1).strip()
+        story_text = re.sub(r'\\n', '\n', story_text)
+        story_text = re.sub(r'\\"', '"', story_text)
+        result["story_continuation"] = story_text
+    elif "story_continuation" in text:
+        # 極端截斷：找不到後續引號或標籤，取 story_continuation 後方所有文字
+        after_key = text.split("story_continuation", 1)[1]
+        m = re.search(r':\s*"?([\s\S]*?)(?="?\s*,\s*"?choices|$)', after_key)
+        if m:
+            clean_val = m.group(1).strip('"\n\r ')
+            clean_val = re.sub(r'\\n', '\n', clean_val)
+            clean_val = re.sub(r'\\"', '"', clean_val)
+            result["story_continuation"] = clean_val
+
+    # 2. 提取 choices
+    choices = []
+    choices_block_match = re.search(r'"(?:choices|options)"\s*:\s*\[([\s\S]*?)\]', text)
+    choices_block = choices_block_match.group(1) if choices_block_match else text
+    
+    opt_matches = re.findall(r'"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"(?:\s*,\s*"hint"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)")?', choices_block)
+    if opt_matches:
+        for idx, (t, h) in enumerate(opt_matches, 1):
+            choices.append({
+                "id": f"opt-{idx}",
+                "text": t.replace('\\"', '"').replace('\\n', '\n').strip(),
+                "hint": h.replace('\\"', '"').strip() if h else ""
+            })
+    else:
+        str_options = re.findall(r'"([^"\n\r]{4,60})"', choices_block)
+        for idx, opt_str in enumerate(str_options[:5], 1):
+            if opt_str not in ["choices", "story_continuation", "status_summary", "updated_player_stats", "stats_changes", "id", "text", "hint"]:
+                choices.append({
+                    "id": f"opt-{idx}",
+                    "text": opt_str.strip(),
+                    "hint": ""
+                })
+    if choices:
+        result["choices"] = choices
+
+    # 3. 提取 updated_player_stats
+    stats_match = re.search(r'"updated_player_stats"\s*:\s*"([\s\S]*?)(?=",\s*"|"}|$)', text)
+    if stats_match:
+        result["updated_player_stats"] = stats_match.group(1).replace('\\"', '"').replace('\\n', '\n').strip()
+
+    # 4. 提取 stats_changes
+    changes_match = re.search(r'"stats_changes"\s*:\s*"([\s\S]*?)(?=",\s*"|"}|$)', text)
+    if changes_match:
+        result["stats_changes"] = changes_match.group(1).replace('\\"', '"').strip()
+
+    # 5. 提取 status_summary
+    summary_match = re.search(r'"status_summary"\s*:\s*"([\s\S]*?)(?=",\s*"|"}|$)', text)
+    if summary_match:
+        result["status_summary"] = summary_match.group(1).replace('\\"', '"').strip()
+
+    # 若成功提取到了 story_continuation，代表救援成功！
+    if result.get("story_continuation"):
+        return result
+        
+    return None
+
+
 def extract_json_data(text: str) -> Any:
-    """超強容錯的 JSON 提取器，支援 Markdown 程式碼區塊、純文字截取與逗號修復"""
+    """超強多層容錯的 JSON 提取器，支援 Markdown 程式碼區塊、控制字元換行、截斷補齊與正則救援"""
+    if not text or not text.strip():
+        raise Exception("AI 模型回傳內容為空白")
+        
     text = text.strip()
     cleaned = clean_json_string(text)
     
-    # 第一次直接嘗試解析
-    try:
-        return json.loads(cleaned)
-    except Exception:
-        pass
-
-    # 嘗試抓取第一處 [ 到最後一處 ] (針對列表)
-    left_bracket = cleaned.find('[')
-    right_bracket = cleaned.rfind(']')
-    if left_bracket != -1 and right_bracket > left_bracket:
-        candidate = cleaned[left_bracket:right_bracket+1]
+    # 策略 1：直接以 strict=False 解析（允許字串內包含 raw 換行符等控制字元）
+    for target in [cleaned, text]:
         try:
-            return json.loads(candidate)
+            return json.loads(target, strict=False)
         except Exception:
-            fixed = re.sub(r',\s*([\]}])', r'\1', candidate)
-            try:
-                return json.loads(fixed)
-            except Exception:
-                pass
+            pass
 
-    # 嘗試抓取第一處 { 到最後一處 } (針對物件)
+    # 策略 2 & 3：依據最外層括號位置，智慧優先嘗試物件或列表
     left_brace = cleaned.find('{')
     right_brace = cleaned.rfind('}')
-    if left_brace != -1 and right_brace > left_brace:
-        candidate = cleaned[left_brace:right_brace+1]
-        try:
-            return json.loads(candidate)
-        except Exception:
-            fixed = re.sub(r',\s*([\]}])', r'\1', candidate)
-            try:
-                return json.loads(fixed)
-            except Exception:
-                pass
+    left_bracket = cleaned.find('[')
+    right_bracket = cleaned.rfind(']')
 
-    # 若依然失敗，丟出乾淨易懂的錯誤訊息
+    try_object_first = True
+    if left_bracket != -1 and (left_brace == -1 or left_bracket < left_brace):
+        try_object_first = False
+
+    def try_parse_object():
+        if left_brace != -1:
+            candidate = cleaned[left_brace:right_brace+1] if right_brace > left_brace else cleaned[left_brace:]
+            for t in [candidate, repair_json_string(candidate)]:
+                try:
+                    res = json.loads(t, strict=False)
+                    if isinstance(res, (dict, list)):
+                        return res
+                except Exception:
+                    pass
+        return None
+
+    def try_parse_list():
+        if left_bracket != -1:
+            candidate = cleaned[left_bracket:right_bracket+1] if right_bracket > left_bracket else cleaned[left_bracket:]
+            for t in [candidate, repair_json_string(candidate)]:
+                try:
+                    res = json.loads(t, strict=False)
+                    if isinstance(res, (dict, list)):
+                        return res
+                except Exception:
+                    pass
+        return None
+
+    if try_object_first:
+        parsed = try_parse_object() or try_parse_list()
+    else:
+        parsed = try_parse_list() or try_parse_object()
+
+    if parsed is not None:
+        return parsed
+
+    # 策略 4：針對遊戲回合與劇情生成的強健正則語意救援
+    fallback_data = extract_game_turn_fallback(cleaned) or extract_game_turn_fallback(text)
+    if fallback_data:
+        return fallback_data
+
+    # 策略 5：若全文為不含 JSON 標籤的小說純文字正文（長度 > 30）
+    if not text.startswith('{') and len(text) > 30 and 'story_continuation' not in text:
+        return {
+            "story_continuation": text.strip(),
+            "choices": []
+        }
+
+    # 若歷經所有策略依然無法提取，丟出乾淨易懂的錯誤訊息
     preview = text[:150] + ("..." if len(text) > 150 else "")
     raise Exception(f"AI 回應格式未能成功轉換為 JSON。原始文字開頭：{preview}")
 

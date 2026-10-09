@@ -657,7 +657,7 @@ async def api_ai_game_turn(req: GameTurnRequest):
         raw_resp = await AIService.call_llm(
             system_prompt=sys_prompt,
             user_prompt=user_prompt,
-            max_tokens=1500
+            max_tokens=2500
         )
         if not raw_resp or not raw_resp.strip():
             raise HTTPException(status_code=502, detail="AI 模型回傳內容為空白，請檢查 API Key 設定或網路連線")
