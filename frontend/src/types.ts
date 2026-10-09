@@ -115,7 +115,7 @@ export interface RecalledScene {
 }
 
 // ==================== 獨立遊戲版型別 ====================
-export type SystemMode = 'novel' | 'game';
+export type SystemMode = 'novel' | 'game' | 'game_frontstage';
 
 export interface GameRulesConfig {
   rules_text: string;                  // 第一欄：自行輸入文字定義遊戲規則
@@ -131,3 +131,27 @@ export interface GameProject extends Novel {
 export interface GameListItem extends NovelListItem {
   // 遊戲版專案列表項目
 }
+
+// ==================== 遊戲前台遊玩型別 ====================
+export interface GameTurnHistoryItem {
+  round: number;
+  story_segment: string;
+  player_action: string;
+  choice_type?: 'preset' | 'custom';
+}
+
+export interface GameTurnRequest {
+  game_id: string;
+  current_action: string;
+  action_type?: 'preset' | 'custom';
+  history: GameTurnHistoryItem[];
+  custom_instruction?: string;
+}
+
+export interface GameTurnResponse {
+  story_continuation: string;
+  choices: GameChoiceOption[];
+  status_summary?: string;
+  round: number;
+}
+

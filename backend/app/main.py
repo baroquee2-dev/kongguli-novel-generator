@@ -14,7 +14,8 @@ from app.models import (
     GenerateOutlineRequest, GenerateLocationsRequest,
     GenerateCharactersRequest, GenerateChapterRequest,
     ContinueWritingRequest, GenerateChapterSummaryRequest,
-    AnalyzeLoreItemsRequest, QueryRagRequest, RecalledScene
+    AnalyzeLoreItemsRequest, QueryRagRequest, RecalledScene,
+    GameTurnRequest, GameTurnResponse, GameTurnHistoryItem
 )
 from app.config import get_settings, save_settings, UPLOADS_DIR
 from app.db import (
@@ -550,6 +551,148 @@ async def api_ai_continue_writing(req: ContinueWritingRequest):
         return {"added_content": added_content.strip()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"續寫失敗: {str(e)}")
+
+
+# ==================== 4.5 遊戲前台互動遊玩機制 API ====================
+@app.post("/api/ai/game-turn", response_model=GameTurnResponse)
+async def api_ai_game_turn(req: GameTurnRequest):
+    """
+    遊戲前台每輪對話與抉擇推演 API：
+    根據玩家選擇的選項或自由輸入之行動，結合世界觀設定、登場NPC、地點、世界書記憶庫與頂層遊戲規則，
+    自動推演下一段劇情正文與新的命運選項。
+    """
+    game = get_project_or_game(req.game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="找不到指定遊戲專案")
+
+    # 1. 取得遊戲頂層規則設定
+    game_rules = getattr(game, 'game_rules', None)
+    rules_text = game_rules.rules_text if game_rules else ""
+    choices_list = game_rules.dialog_choices if (game_rules and game_rules.dialog_choices) else [3]
+    target_choice_count = choices_list[0] if choices_list else 3
+    if target_choice_count not in [3, 4, 5]:
+        target_choice_count = 3
+
+    strict_enforcement = game_rules.strict_rule_enforcement if game_rules else True
+    global_style = game.global_style_guide.strip() if (hasattr(game, 'global_style_guide') and game.global_style_guide) else ""
+
+    # 2. 彙整世界觀與設定資訊
+    chars_text = ""
+    if game.characters:
+        chars_text = "\n".join([
+            f"- 【{c.name}】({c.role}, {c.profile}) 外貌: {c.appearance}"
+            for c in game.characters[:6]
+        ])
+    else:
+        chars_text = "（暫無預設NPC，由AI配合情境自由引導）"
+
+    locs_text = ""
+    if game.locations:
+        locs_text = "\n".join([
+            f"- 【{l.name}】: {l.description}"
+            for l in game.locations[:5]
+        ])
+    else:
+        locs_text = "（依世界舞台自由展開）"
+
+    lore_text = ""
+    if hasattr(game, 'lore_items') and game.lore_items:
+        lore_items_enabled = [item for item in game.lore_items if item.is_enabled]
+        if lore_items_enabled:
+            lore_text = "\n".join([
+                f"- 📌【{item.title}】({item.category}): {item.content}"
+                for item in lore_items_enabled[:5]
+            ])
+
+    # 3. 彙整歷史遊玩推進歷程 (最多取最近 4 回合)
+    history_lines = []
+    for h in req.history[-4:]:
+        act_type_tag = "【玩家自由鍵入行動】" if h.choice_type == 'custom' else "【玩家選擇之選項】"
+        history_lines.append(f"--- [第 {h.round} 回合] ---\n情境描述：{h.story_segment}\n{act_type_tag}：{h.player_action}")
+
+    history_block = "\n\n".join(history_lines) if history_lines else "（這是遊戲的第一個分歧決策點）"
+
+    curr_action_tag = "【玩家自創行動】" if req.action_type == 'custom' else "【玩家點選之選項】"
+
+    sys_prompt = prompts.get_game_turn_prompt(
+        choice_count=target_choice_count,
+        strict_rule_enforcement=strict_enforcement,
+        rules_text=rules_text,
+        global_style_guide=global_style
+    )
+
+    user_prompt = f"""【遊戲專案基本資訊】
+遊戲名稱：《{game.title}》
+遊戲類型：{game.genre}
+風格基調：{game.tone}
+世界觀舞台：{game.world_background or "未特別定義，依類型發揮"}
+核心主線目標：{game.main_plot or "推進探索與解謎冒險"}
+
+【登場NPC角色庫】：
+{chars_text}
+
+【主要探索場景】：
+{locs_text}
+
+【世界書記憶與關鍵伏筆庫】：
+{lore_text or "無特殊常駐伏筆"}
+
+【歷次回合冒險進展脈絡】：
+{history_block}
+
+【當前玩家最新行動】：
+{curr_action_tag}：{req.current_action}
+
+請根據上述遊戲設定、歷史脈絡以及頂層規則約束，推演接下來發生的劇情，並產出下一輪恰好 {target_choice_count} 個選項：
+"""
+
+    try:
+        raw_resp = await AIService.call_llm(
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1500
+        )
+        data = extract_json_data(raw_resp)
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            data = data[0]
+
+        story_continuation = data.get("story_continuation") or data.get("story") or "情節繼續推進中..."
+        raw_choices = data.get("choices") or []
+        formatted_choices = []
+        if isinstance(raw_choices, list):
+            for i, opt in enumerate(raw_choices, 1):
+                if isinstance(opt, dict):
+                    formatted_choices.append({
+                        "id": opt.get("id") or f"opt-{uuid.uuid4().hex[:6]}",
+                        "text": opt.get("text", f"行動決策 {i}"),
+                        "hint": opt.get("hint", "")
+                    })
+                elif isinstance(opt, str):
+                    formatted_choices.append({
+                        "id": f"opt-{uuid.uuid4().hex[:6]}",
+                        "text": opt,
+                        "hint": ""
+                    })
+
+        while len(formatted_choices) < target_choice_count:
+            idx = len(formatted_choices) + 1
+            formatted_choices.append({
+                "id": f"opt-{uuid.uuid4().hex[:6]}",
+                "text": f"選項 {idx}：審慎觀察周遭並決定下一步",
+                "hint": "保持謹慎與警惕"
+            })
+
+        status_summary = data.get("status_summary", "")
+        current_round = len(req.history) + 1
+
+        return {
+            "story_continuation": story_continuation.strip(),
+            "choices": formatted_choices[:target_choice_count],
+            "status_summary": status_summary,
+            "round": current_round
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"遊戲回合推演失敗: {str(e)}")
 
 
 def build_timeline_context(novel: Novel, current_chapter_id: str) -> tuple[str, str]:

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { NovelListItem, GameListItem, AISettings, SystemMode } from '../types';
 import { 
-  BookOpen, Plus, Settings, Download, Trash2, Sparkles, ChevronDown, Gamepad2 
+  BookOpen, Plus, Settings, Download, Trash2, Sparkles, ChevronDown, Gamepad2, Compass 
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -46,7 +46,7 @@ export const Navbar: React.FC<Props> = ({
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const isGame = systemMode === 'game';
+  const isGame = systemMode === 'game' || systemMode === 'game_frontstage';
   const currentItem = isGame 
     ? games.find(g => g.id === currentGameId)
     : novels.find(n => n.id === currentNovelId);
@@ -99,12 +99,12 @@ export const Navbar: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* 🌟 頂層系統版本切換頁籤：小說版 vs 遊戲版 */}
+        {/* 🌟 頂層系統版本切換頁籤：小說版 vs 遊戲版 vs 遊戲前台 */}
         <div className="flex items-center bg-slate-950/80 p-1 rounded-xl border border-slate-800 shadow-inner">
           <button
             onClick={() => onSwitchSystemMode('novel')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              !isGame
+              systemMode === 'novel'
                 ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
@@ -115,13 +115,24 @@ export const Navbar: React.FC<Props> = ({
           <button
             onClick={() => onSwitchSystemMode('game')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              isGame
+              systemMode === 'game'
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/30'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <Gamepad2 className="w-3.5 h-3.5" />
             <span>遊戲版</span>
+          </button>
+          <button
+            onClick={() => onSwitchSystemMode('game_frontstage')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              systemMode === 'game_frontstage'
+                ? 'bg-gradient-to-r from-teal-500 to-cyan-600 text-white shadow-md shadow-cyan-600/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>遊戲前台</span>
           </button>
         </div>
 
@@ -222,7 +233,7 @@ export const Navbar: React.FC<Props> = ({
       {/* 右側：動作按鈕群 */}
       <div className="flex items-center gap-3">
         {/* 小說版專屬：切換到前台閱讀展台按鈕 */}
-        {!isGame && (
+        {systemMode === 'novel' && (
           <button
             onClick={onSwitchToFrontstage}
             title="切換至前台讀者閱讀展台，完整列出主題與純故事正文"
@@ -230,6 +241,18 @@ export const Navbar: React.FC<Props> = ({
           >
             <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
             <span>📖 切換至前台閱讀</span>
+          </button>
+        )}
+
+        {/* 遊戲版專屬：切換到遊戲前台大廳按鈕 */}
+        {systemMode === 'game' && (
+          <button
+            onClick={() => onSwitchSystemMode('game_frontstage')}
+            title="切換至遊戲前台大廳，體驗文字冒險與命運決策"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600/30 via-teal-600/30 to-cyan-600/30 hover:from-emerald-600/50 hover:to-cyan-600/50 border border-emerald-500/50 text-xs font-bold text-emerald-200 transition shadow-sm shadow-emerald-500/10 transform hover:-translate-y-0.5"
+          >
+            <Gamepad2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>🎮 切換至遊戲前台</span>
           </button>
         )}
 

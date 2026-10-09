@@ -196,5 +196,25 @@ class RecalledScene(BaseModel):
     reason: str
     characters: List[str] = Field(default_factory=list)
 
+# ==================== 遊戲前台互動遊玩機制模型 ====================
+class GameTurnHistoryItem(BaseModel):
+    round: int = Field(default=1, description="歷史回合編號")
+    story_segment: str = Field(default="", description="該回合之劇情敘述正文")
+    player_action: str = Field(default="", description="玩家該回合所做出的決策或輸入之行動")
+    choice_type: Optional[str] = Field(default="preset", description="preset 或 custom")
+
+class GameTurnRequest(BaseModel):
+    game_id: str = Field(..., description="遊戲專案 ID")
+    current_action: str = Field(..., description="玩家當前回合所選或輸入的行動")
+    action_type: Optional[str] = Field(default="preset", description="preset 或 custom")
+    history: List[GameTurnHistoryItem] = Field(default_factory=list, description="此前所有回合的冒險紀錄")
+    custom_instruction: Optional[str] = Field(default="", description="額外自訂引導")
+
+class GameTurnResponse(BaseModel):
+    story_continuation: str = Field(..., description="AI 接續生成的劇情發展")
+    choices: List[GameChoiceOption] = Field(default_factory=list, description="下一輪可供玩家決策的選項列表")
+    status_summary: Optional[str] = Field(default="", description="當前冒險狀態摘要 (如地點變更、局勢與心境)")
+    round: int = Field(default=1, description="當前回合編號")
+
 
 

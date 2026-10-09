@@ -10,6 +10,7 @@ import { ChaptersTab } from './components/ChaptersTab';
 import { GameLevelTab } from './components/GameLevelTab';
 import { LorebookTab } from './components/LorebookTab';
 import { FrontstageView } from './components/FrontstageView';
+import { GameFrontstageView } from './components/GameFrontstageView';
 import { 
   BookMarked, MapPin, Users, BookOpenCheck, Loader2, CheckCircle, Brain, Gamepad2
 } from 'lucide-react';
@@ -408,6 +409,27 @@ export const App: React.FC = () => {
         <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
         <p className="text-sm font-medium">正在啟動孔固力創作空間...</p>
       </div>
+    );
+  }
+
+  // 獨立遊戲前台遊玩模式
+  if (systemMode === 'game_frontstage') {
+    return (
+      <>
+        <GameFrontstageView
+          games={games}
+          currentGame={currentGame}
+          onSelectGame={handleSelectGame}
+          onBackToStudio={() => handleSwitchSystemMode('game')}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          settings={settings}
+          onSave={handleSaveSettings}
+        />
+      </>
     );
   }
 

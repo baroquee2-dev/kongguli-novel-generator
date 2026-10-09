@@ -1,4 +1,7 @@
-import type { AISettings, Novel, NovelListItem, GameProject, GameListItem, Location, Character, LoreItem, RecalledScene } from '../types';
+import type { 
+  AISettings, Novel, NovelListItem, GameProject, GameListItem, Location, 
+  Character, LoreItem, RecalledScene, GameTurnRequest, GameTurnResponse 
+} from '../types';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -447,6 +450,20 @@ export const api = {
     });
     if (!res.ok) {
       throw new Error('重構向量索引庫失敗');
+    }
+    return res.json();
+  },
+
+  // 遊戲前台互動遊玩 API
+  async playGameTurn(req: GameTurnRequest): Promise<GameTurnResponse> {
+    const res = await fetch(`${API_BASE}/ai/game-turn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: '遊戲回合推進失敗' }));
+      throw new Error(err.detail || '遊戲回合推進失敗');
     }
     return res.json();
   },

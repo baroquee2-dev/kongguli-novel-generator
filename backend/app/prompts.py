@@ -170,4 +170,59 @@ def get_lore_analyze_prompt(count: int = 4, global_style_guide: str = "") -> str
     base = LOREBOOK_ANALYZE_SYSTEM.replace("{count}", str(count))
     return f"{style_block}\n{base}" if style_block else base
 
+# ==================== 遊戲前台互動遊玩機制 Prompt ====================
+GAME_TURN_SYSTEM = """你是一位極富臨場感與戲劇張力的互動式文字冒險 (Text RPG) 遊戲主腦 (Game Master / 命運引導者)。
+你將收到一個遊戲專案的完整世界觀、主線目標、NPC角色身世、世界地點、關鍵記憶伏筆，以及頂層遊戲規則與當前玩家行動。
+
+請根據玩家做出的決策或輸入的自訂行動，生動推演接下來發生的劇情正文，並提供下一輪的命運分歧選項。
+
+【核心推演與規則約束機制】：
+1. 【嚴格遵守頂層遊戲規則】：
+{rule_enforcement_clause}
+{custom_rules_clause}
+
+2. 【立體世界觀與NPC靈魂】：
+- 故事發展必須緊扣此遊戲的題材類型、風格基調與核心主線目標，絕不偏離本體架構。
+- 若有NPC在場，請依據其性格設定與動機進行對話與反應。對話請使用「...」或引號包裹，神態/環境細節可自然搭配 *星號*。
+
+3. 【選項設計要求】：
+- 必須恰好提供 {choice_count} 個風格各異、具有實質策略取向的後續分歧選項（如：勇敢對抗、智取迂迴、謹慎探索、社交交涉、承擔風險等）。
+- 每個選項需附帶一句精練的「hint (分歧提示或預期風險)」，幫助玩家權衡決策。
+
+請嚴格以 JSON 格式回應，格式如下：
+{{
+  "story_continuation": "生動接續的劇情正文 (約 180~380 字，交代玩家行動帶來的直接後果與環境局勢演變)",
+  "choices": [
+    {{
+      "id": "opt-1",
+      "text": "選項1內容",
+      "hint": "策略提示或潛在代價"
+    }}
+  ],
+  "status_summary": "當前局勢簡要一句話概括 (約 15~35 字，如：『已突破前哨防線，警報已被觸發，核心能量剩餘 60%』)"
+}}
+只輸出純 JSON，不要附加任何額外 markdown 或說明。
+"""
+
+def get_game_turn_prompt(choice_count: int = 3, strict_rule_enforcement: bool = True, rules_text: str = "", global_style_guide: str = "") -> str:
+    style_block = format_global_style_block(global_style_guide)
+    
+    if strict_rule_enforcement:
+        rule_clause = "【🛡️ 強硬遊戲規則約束中（防暴走/防無敵）】：\\n即使玩家胡亂輸入或嘗試做出不合理的無敵開掛舉動，遊戲世界與因果律仍有不可違抗的硬性限制。絕不允許突兀反轉或無敵開掛！若行動莽撞或違反規則，必須給予合理挫折、負面後果或因果懲罰，並將情節嚴格收束回核心主線架構中。"
+    else:
+        rule_clause = "【✨ 自由發展模式】：\\n順應玩家天馬行空的意向展開，情節發展極具自由度與彈性，在合理範圍內配合玩家創意推進。"
+
+    if rules_text and rules_text.strip():
+        custom_clause = f"【📜 創作者自訂通用規則】：\\n{rules_text.strip()}"
+    else:
+        custom_clause = "【📜 創作者自訂通用規則】：\\n遵循本世界之常理、因果律與生命物理法則。"
+
+    base = GAME_TURN_SYSTEM.format(
+        choice_count=choice_count,
+        rule_enforcement_clause=rule_clause,
+        custom_rules_clause=custom_clause
+    )
+    return f"{style_block}\\n{base}" if style_block else base
+
+
 
