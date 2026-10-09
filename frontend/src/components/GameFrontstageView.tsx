@@ -778,8 +778,8 @@ export const GameFrontstageView: React.FC<Props> = ({
 
   // ==================== 2. 遊戲進行中視圖 (Play Session) ====================
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative overflow-x-hidden">
-      {/* 🌌 動態淡色循環背景圖層 (封面圖與角色圖淡入淡出輪播) 🌌 */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative">
+      {/* 🌌 動態淡色循環背景圖層 (封面圖與角色圖淡入淡出輪播，清晰沉浸) 🌌 */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {backgroundSlides.length > 0 ? (
           <>
@@ -789,20 +789,20 @@ export const GameFrontstageView: React.FC<Props> = ({
                 <div
                   key={`${slide.url}-${idx}`}
                   className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
-                    isActive ? 'opacity-20' : 'opacity-0'
+                    isActive ? 'opacity-55' : 'opacity-0'
                   }`}
                 >
                   <img
                     src={slide.url}
                     alt={slide.label}
-                    className="w-full h-full object-cover object-center filter saturate-110 brightness-90 transform scale-105 transition-transform duration-[8000ms] ease-out"
+                    className="w-full h-full object-cover object-center filter saturate-110 brightness-100 transform scale-105 transition-transform duration-[8000ms] ease-out"
                   />
                 </div>
               );
             })}
-            {/* 深色暗角與半透明漸層遮罩，保證前景文字與選項最高可讀性 */}
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/85 via-slate-950/80 to-slate-950/95" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-slate-950/40 to-slate-950/90" />
+            {/* 輕量柔和半透明暗層，讓背景封面與角色清晰美麗呈現，同時兼顧文字舒適可讀 */}
+            <div className="absolute inset-0 bg-slate-950/45" />
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-transparent to-slate-950/75" />
           </>
         ) : (
           /* 若無圖片時的科技感暗夜漸層與環境光 */
@@ -815,55 +815,56 @@ export const GameFrontstageView: React.FC<Props> = ({
 
       {/* 背景圖當前輪播指示標籤 (極簡淡色小標，左下角) */}
       {backgroundSlides.length > 0 && (
-        <div className="fixed bottom-3 left-4 z-20 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/60 border border-slate-800/50 backdrop-blur-sm text-[10px] text-slate-400/80 shadow-lg">
+        <div className="fixed bottom-3 left-4 z-20 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/70 border border-slate-800/60 backdrop-blur-md text-[10px] text-slate-300 shadow-lg">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span>背景：{backgroundSlides[currentBgIndex]?.label}</span>
           {backgroundSlides.length > 1 && (
-            <span className="font-mono text-[9px] text-slate-500">
+            <span className="font-mono text-[9px] text-emerald-400/90 font-semibold">
               ({currentBgIndex + 1}/{backgroundSlides.length})
             </span>
           )}
         </div>
       )}
 
-      {/* 冒險頂部控制橫幅 */}
-      <header className="h-16 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-40">
-        <div className="flex items-center gap-4">
+      {/* 冒險頂部控制橫幅 (上方指令列) */}
+      <header className="min-h-16 py-2.5 border-b border-slate-800 bg-slate-900/95 backdrop-blur-md px-4 sm:px-6 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40 shadow-lg">
+        {/* 左側：遊戲名稱與狀態標籤 */}
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={handleSwitchToLobby}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition shrink-0"
             title="返回遊戲前台大廳"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>返回大廳</span>
           </button>
 
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
               <Gamepad2 className="w-4 h-4" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm text-slate-100">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-sm text-slate-100 truncate max-w-[180px] sm:max-w-xs">
                   {playingGame?.title}
                 </span>
-                <span className="text-[10px] font-bold bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] font-bold bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full shrink-0">
                   回合 {turns.length}
                 </span>
                 {lastSavedTime && (
-                  <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400/80">
+                  <span className="hidden xl:inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400/80 shrink-0">
                     <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    <span>進度已自動儲存 ({lastSavedTime})</span>
+                    <span>進度已存 ({lastSavedTime})</span>
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2 text-[10px] text-slate-400">
+              <div className="hidden sm:flex items-center gap-2 text-[10px] text-slate-400 flex-wrap">
                 <span>{playingGame?.genre}</span>
                 <span>•</span>
                 <span>{playingGame?.tone}</span>
                 <span>•</span>
                 <span className={isStrict ? 'text-purple-400 font-semibold' : 'text-cyan-400 font-semibold'}>
-                  {isStrict ? '🛡️ 強硬規則約束' : '✨ 自由發展模式'}
+                  {isStrict ? '🛡️ 強硬約束' : '✨ 自由發展'}
                 </span>
                 {playingGame?.game_rules?.enable_player_stats && (
                   <>
@@ -878,45 +879,45 @@ export const GameFrontstageView: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* 右側操作按鈕 */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        {/* 右側：操作指令按鈕列 */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
           <button
             onClick={handleExportAdventureTranscript}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-medium text-slate-300 hover:text-white transition"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-medium text-slate-300 hover:text-white transition"
             title="匯出完整冒險遊玩紀錄為 Markdown 檔"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden sm:inline">匯出紀錄</span>
+            <span className="hidden md:inline">匯出紀錄</span>
           </button>
 
           <button
             onClick={onOpenSettings}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-950/40 hover:bg-purple-900/40 border border-purple-500/30 text-xs font-medium text-purple-200 transition"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-purple-950/40 hover:bg-purple-900/40 border border-purple-500/30 text-xs font-medium text-purple-200 transition"
             title="AI 模型設定"
           >
             <Settings className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden sm:inline">AI 設定</span>
+            <span className="hidden md:inline">AI 設定</span>
           </button>
 
           {/* 角色狀態欄固定顯示切換按鈕 */}
           {isStatsEnabled && (
             <button
               onClick={() => setShowStatsBar(!showStatsBar)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
                 showStatsBar
-                  ? 'bg-rose-950/60 border-rose-500/60 text-rose-200 shadow-sm shadow-rose-950/40'
+                  ? 'bg-rose-950/70 border-rose-500/60 text-rose-200 shadow-sm shadow-rose-950/40 font-bold'
                   : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700/60 text-slate-400'
               }`}
               title={showStatsBar ? "收起右側角色狀態欄" : "固定顯示右側角色狀態欄"}
             >
               <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
-              <span className="hidden sm:inline">角色狀態</span>
+              <span>{showStatsBar ? '狀態欄(開啟)' : '狀態欄(收起)'}</span>
             </button>
           )}
 
           <button
             onClick={() => setShowManualDrawer(!showManualDrawer)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
               showManualDrawer
                 ? 'bg-emerald-600/20 border-emerald-500 text-emerald-200'
                 : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700/60 text-slate-300'
@@ -924,12 +925,12 @@ export const GameFrontstageView: React.FC<Props> = ({
             title="開啟世界觀與NPC手冊"
           >
             <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">遊戲設定與NPC</span>
+            <span className="hidden md:inline">世界觀手冊</span>
           </button>
 
           <button
             onClick={handleRestartAdventure}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-rose-950/40 hover:border-rose-500/50 hover:text-rose-300 border border-slate-700/60 text-xs font-medium text-slate-400 transition"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-rose-950/40 hover:border-rose-500/50 hover:text-rose-300 border border-slate-700/60 text-xs font-medium text-slate-400 transition"
             title="重置回第 1 回合啟始劇情"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -938,15 +939,15 @@ export const GameFrontstageView: React.FC<Props> = ({
 
           <button
             onClick={onBackToStudio}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-400 hover:text-slate-200 transition"
+            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-400 hover:text-slate-200 transition"
           >
-            <span>後台設定</span>
+            <span>後台</span>
           </button>
         </div>
       </header>
 
       {/* 冒險進行中主介面 */}
-      <div className={`relative z-10 flex-1 w-full mx-auto p-4 sm:p-6 pb-28 transition-all ${
+      <div className={`flex-1 w-full mx-auto p-4 sm:p-6 pb-28 transition-all ${
         isStatsEnabled && showStatsBar
           ? 'max-w-[1536px] flex flex-col lg:flex-row items-start gap-6'
           : 'max-w-5xl flex flex-col space-y-6'
