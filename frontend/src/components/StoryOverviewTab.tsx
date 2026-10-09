@@ -3,7 +3,7 @@ import type { Novel, GameRulesConfig } from '../types';
 import { 
   Sparkles, Loader2, BookOpen, Globe2, Compass, PenTool, Wand2, Flame, RotateCcw,
   Upload, Link as LinkIcon, Trash2, Image as ImageIcon,
-  Gamepad2, ScrollText, GitFork, MessageSquarePlus, ShieldAlert, ShieldCheck
+  Gamepad2, ScrollText, GitFork, MessageSquarePlus, ShieldAlert, ShieldCheck, AlertCircle
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -75,14 +75,26 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
 
   // 頂層遊戲規則設定狀態處理 (第一欄、第二欄、第三欄、第四欄)
   const rawChoices = (novel.game_rules?.dialog_choices || [3]).filter(c => c !== 0);
+  const allowCustomInput = novel.game_rules?.allow_custom_input ?? true;
   const gameRules: GameRulesConfig = {
     rules_text: novel.game_rules?.rules_text || '',
     dialog_choices: rawChoices.length > 0 ? rawChoices : [3],
-    allow_custom_input: novel.game_rules?.allow_custom_input ?? true,
-    strict_rule_enforcement: novel.game_rules?.strict_rule_enforcement ?? true,
+    allow_custom_input: allowCustomInput,
+    strict_rule_enforcement: allowCustomInput 
+      ? (novel.game_rules?.strict_rule_enforcement ?? true) 
+      : true, // 若未開放玩家自行輸入，強制為強硬遊戲規則
   };
 
   const handleGameRulesChange = (partial: Partial<GameRulesConfig>) => {
+    // 連動約束：若關閉玩家自行輸入，強制將劇情約束設為強硬規則
+    if (partial.allow_custom_input === false) {
+      partial.strict_rule_enforcement = true;
+    }
+    // 若試圖勾選自由發展，但未勾選允許玩家自行輸入，則阻擋
+    if (partial.strict_rule_enforcement === false && !gameRules.allow_custom_input && partial.allow_custom_input !== true) {
+      return;
+    }
+
     const updatedRules: GameRulesConfig = {
       ...gameRules,
       ...partial,
@@ -369,27 +381,46 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
                 </label>
 
                 <label
-                  onClick={() => handleGameRulesChange({ strict_rule_enforcement: false })}
-                  className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition select-none ${
-                    !gameRules.strict_rule_enforcement
-                      ? 'bg-purple-950/30 border-purple-500/60 text-purple-200'
-                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-400'
+                  onClick={() => {
+                    if (gameRules.allow_custom_input) {
+                      handleGameRulesChange({ strict_rule_enforcement: false });
+                    }
+                  }}
+                  className={`flex items-start gap-2.5 p-3 rounded-lg border transition select-none ${
+                    !gameRules.allow_custom_input
+                      ? 'opacity-40 cursor-not-allowed bg-slate-950/40 border-slate-850 text-slate-500'
+                      : !gameRules.strict_rule_enforcement
+                      ? 'bg-purple-950/30 border-purple-500/60 text-purple-200 cursor-pointer'
+                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-400 cursor-pointer'
                   }`}
                 >
                   <input
                     type="radio"
                     name="rule_enforcement_mode"
+                    disabled={!gameRules.allow_custom_input}
                     checked={gameRules.strict_rule_enforcement === false}
-                    onChange={() => handleGameRulesChange({ strict_rule_enforcement: false })}
-                    className="mt-0.5 text-purple-500 focus:ring-purple-500/20 bg-slate-950"
+                    onChange={() => {
+                      if (gameRules.allow_custom_input) {
+                        handleGameRulesChange({ strict_rule_enforcement: false });
+                      }
+                    }}
+                    className="mt-0.5 text-purple-500 focus:ring-purple-500/20 bg-slate-950 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                   <div>
-                    <div className="text-xs font-bold text-slate-300">
-                      劇情可自由發展（無約束）
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold ${!gameRules.allow_custom_input ? 'text-slate-500' : 'text-slate-300'}`}>
+                        劇情可自由發展（無約束）
+                      </span>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
                       順應玩家任何天馬行空的意向展開，情節發展極具自由度，不強制套用硬性失敗法則。
                     </p>
+                    {!gameRules.allow_custom_input && (
+                      <div className="text-[10px] text-amber-400/90 flex items-center gap-1 mt-1.5 font-medium bg-amber-950/30 px-2 py-0.5 rounded border border-amber-500/20">
+                        <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span>需先於第三欄勾選「允許玩家自行輸入」才可啟用</span>
+                      </div>
+                    )}
                   </div>
                 </label>
 
