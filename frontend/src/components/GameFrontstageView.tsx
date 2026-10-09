@@ -248,13 +248,18 @@ export const GameFrontstageView: React.FC<Props> = ({
         : null;
 
       const startingPlot = initialStory?.starting_plot || initialStory?.content || '命運的帷幕緩緩拉開，新的冒險即將啟程...';
-      const startingOptions: GameChoiceOption[] = (initialStory?.starting_options && initialStory.starting_options.length > 0)
+      const rawChoices = (gameData.game_rules?.dialog_choices || []).filter(c => c > 0);
+      const maxChoicesLimit = rawChoices.length > 0 
+        ? (rawChoices.length === 1 ? rawChoices[0] : Math.max(...rawChoices)) 
+        : 3;
+      const rawOptions: GameChoiceOption[] = (initialStory?.starting_options && initialStory.starting_options.length > 0)
         ? initialStory.starting_options
         : [
             { id: 'opt-init-1', text: '主動挺身而出，探查周遭動靜', hint: '主動出擊' },
             { id: 'opt-init-2', text: '保持警惕在暗處觀察局勢', hint: '審慎穩妥' },
             { id: 'opt-init-3', text: '嘗試尋找同伴或搜集情報', hint: '情報與社交' }
           ];
+      const startingOptions: GameChoiceOption[] = rawOptions.slice(0, maxChoicesLimit);
 
       const initialStats = gameData.game_rules?.enable_player_stats
         ? (gameData.game_rules?.initial_player_stats || '生命值: 100/100, 精神值: 100/100, 狀態: [正常]')

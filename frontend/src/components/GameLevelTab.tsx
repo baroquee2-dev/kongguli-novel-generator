@@ -3,7 +3,7 @@ import type { GameProject, Chapter, GameChoiceOption } from '../types';
 import { 
   Gamepad2, BookOpen, GitFork, Plus, Trash2, MapPin, Users,
   ShieldCheck, Loader2, Info, CornerDownRight, CheckCircle2,
-  FileText, Wand2, Compass
+  FileText, Wand2, Compass, AlertTriangle
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -64,8 +64,22 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
     });
   };
 
+  // 第 1 頁「對話選擇數量」規則限制
+  const gameRules = game.game_rules;
+  const rawChoices = (gameRules?.dialog_choices || []).filter(c => c > 0);
+  const maxChoiceLimit = rawChoices.length > 0 
+    ? (rawChoices.length === 1 ? rawChoices[0] : Math.max(...rawChoices)) 
+    : 3;
+  const isMaxOptionsReached = startingOptions.length >= maxChoiceLimit;
+  const isOptionsOverLimit = startingOptions.length > maxChoiceLimit;
+  const targetChoicesCount = rawChoices.length > 0 ? rawChoices.join(' / ') : '3';
+
   // 啟始選項增刪改
   const handleAddOption = () => {
+    if (startingOptions.length >= maxChoiceLimit) {
+      alert(`已達第 1 頁設定的選項上限（${maxChoiceLimit} 個選項），無法再增加！如需增加請前往第 1 頁調整「對話選擇數量」。`);
+      return;
+    }
     const nextIdx = startingOptions.length + 1;
     const newOpt: GameChoiceOption = {
       id: `opt-${Date.now()}-${nextIdx}`,
@@ -139,11 +153,6 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
       setIsAiBrainstorming(false);
     }
   };
-
-  const gameRules = game.game_rules;
-  const targetChoicesCount = gameRules?.dialog_choices && gameRules.dialog_choices.length > 0 
-    ? gameRules.dialog_choices.join(' / ') 
-    : '3';
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16 animate-in fade-in duration-200">
@@ -364,14 +373,21 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
               <GitFork className="w-4 h-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm font-bold text-slate-100">開局啟始選項 (Initial Choices)</h2>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                  初始命運分歧
+                <span className={`text-[11px] font-mono px-2.5 py-0.5 rounded-full border font-bold flex items-center gap-1.5 shadow-sm ${
+                  isOptionsOverLimit
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                    : isMaxOptionsReached
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  <span>項目上限：{startingOptions.length} / {maxChoiceLimit} 項</span>
+                  <span className="text-[10px] font-normal text-slate-400">（連動第 1 頁規則）</span>
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                當啟始劇情敘述完畢後，提供給玩家做出的第一組行動決策分歧項：
+                當啟始劇情敘述完畢後，提供給玩家做出的第一組行動決策分歧項（選項總數受第 1 頁對話選擇數量限制，目前上限 {maxChoiceLimit} 項）：
               </p>
             </div>
           </div>
@@ -380,13 +396,31 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
             <button
               type="button"
               onClick={handleAddOption}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition"
+              disabled={isMaxOptionsReached}
+              title={isMaxOptionsReached ? `已達第 1 頁設定的上限 (${maxChoiceLimit} 項)` : '新增啟始選項'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
+                isMaxOptionsReached
+                  ? 'bg-slate-800/80 text-slate-500 border-slate-700/60 cursor-not-allowed shadow-none'
+                  : 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border-emerald-500/40 shadow-sm'
+              }`}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>新增啟始選項</span>
+              <span>{isMaxOptionsReached ? `已達上限 (${maxChoiceLimit} 項)` : '新增啟始選項'}</span>
             </button>
           </div>
         </div>
+
+        {/* 若選項超過上限，顯示警示列 */}
+        {isOptionsOverLimit && (
+          <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-3 shadow-md">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                目前啟始選項數（{startingOptions.length} 項）已超出第 1 頁設定的上限（{maxChoiceLimit} 項）。建議點擊右側垃圾桶刪除多餘選項，以確保遊戲規則一致。
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* 選項清單 */}
         <div className="space-y-3">
@@ -447,19 +481,28 @@ export const GameLevelTab: React.FC<Props> = ({ game, onChange }) => {
         </div>
 
         {/* 底部輔助提示 */}
-        <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
+        <div className="pt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400 border-t border-slate-800/80 pt-3">
           <div className="flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-slate-400" />
-            <span>目前已配置 {startingOptions.length} 個啟始選項。玩家進入遊戲將直接面臨此組初始分歧抉擇。</span>
+            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span>
+              已配置 {startingOptions.length} / {maxChoiceLimit} 個啟始選項（依據第 1 頁「對話選擇數量」規則上限）。
+            </span>
           </div>
 
-          <button
-            type="button"
-            onClick={handleAddOption}
-            className="text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 transition"
-          >
-            <Plus className="w-3 h-3" /> 新增第 {startingOptions.length + 1} 個選項
-          </button>
+          {isMaxOptionsReached ? (
+            <span className="text-amber-400/90 bg-amber-950/40 border border-amber-500/30 px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              已達第 1 頁設定上限 ({maxChoiceLimit} 項)
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={handleAddOption}
+              className="text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 transition"
+            >
+              <Plus className="w-3 h-3" /> 新增第 {startingOptions.length + 1} 個選項 (上限 {maxChoiceLimit})
+            </button>
+          )}
         </div>
       </div>
     </div>
