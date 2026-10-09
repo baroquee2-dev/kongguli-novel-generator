@@ -74,11 +74,12 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
   };
 
   // 頂層遊戲規則設定狀態處理 (第一欄、第二欄、第三欄、第四欄)
-  const gameRules: GameRulesConfig = novel.game_rules || {
-    rules_text: '',
-    dialog_choices: [3],
-    allow_custom_input: true,
-    strict_rule_enforcement: true,
+  const rawChoices = (novel.game_rules?.dialog_choices || [3]).filter(c => c !== 0);
+  const gameRules: GameRulesConfig = {
+    rules_text: novel.game_rules?.rules_text || '',
+    dialog_choices: rawChoices.length > 0 ? rawChoices : [3],
+    allow_custom_input: novel.game_rules?.allow_custom_input ?? true,
+    strict_rule_enforcement: novel.game_rules?.strict_rule_enforcement ?? true,
   };
 
   const handleGameRulesChange = (partial: Partial<GameRulesConfig>) => {
@@ -93,7 +94,7 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
   };
 
   const handleToggleDialogChoice = (choice: number) => {
-    const currentChoices = gameRules.dialog_choices || [];
+    const currentChoices = (gameRules.dialog_choices || []).filter(c => c !== 0);
     let newChoices: number[];
     if (currentChoices.includes(choice)) {
       newChoices = currentChoices.filter(c => c !== choice);
@@ -220,7 +221,6 @@ export const StoryOverviewTab: React.FC<Props> = ({ novel, onChange, isGame = fa
               </p>
               <div className="space-y-2 flex-1 flex flex-col justify-between">
                 {[
-                  { val: 0, label: '0 個選項', desc: '純敘事推進，無分支選項' },
                   { val: 3, label: '3 個選項', desc: '經典三選一，平衡分支策略 (推薦)' },
                   { val: 4, label: '4 個選項', desc: '四向策略決策，探索深度提升' },
                   { val: 5, label: '5 個選項', desc: '五重命運抉擇，高自由度展開' },

@@ -104,7 +104,7 @@ class Novel(BaseModel):
 # ==================== 獨立遊戲版規則與專案模型 ====================
 class GameRulesConfig(BaseModel):
     rules_text: str = Field(default="", description="第一欄：自訂遊戲規則文字")
-    dialog_choices: List[int] = Field(default_factory=lambda: [3], description="第二欄：每回合對話選項數量 (0, 3, 4, 5)")
+    dialog_choices: List[int] = Field(default_factory=lambda: [3], description="第二欄：每回合對話選項數量 (3, 4, 5)")
     allow_custom_input: bool = Field(default=True, description="第三欄：是否允許玩家自行輸入劇情分歧")
     strict_rule_enforcement: bool = Field(default=True, description="第四欄：強硬遊戲規則防暴走(True) 或 劇情自由發展(False)")
 
