@@ -122,6 +122,7 @@ export const GameFrontstageView: React.FC<Props> = ({
   const [customInputText, setCustomInputText] = useState('');
   const [isAdvancingTurn, setIsAdvancingTurn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [failedAction, setFailedAction] = useState<{ text: string; type: 'preset' | 'custom' } | null>(null);
   const [lastSavedTime, setLastSavedTime] = useState<string>('');
 
   // 右側固定角色狀態欄開關 (當啟用數值狀態時預設開啟固定於右側)
@@ -136,13 +137,18 @@ export const GameFrontstageView: React.FC<Props> = ({
 
   // 滾動參照
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
-  // 自動平滑滾動至最新情節
+  // 當發生錯誤時滾動至錯誤提示，否則平滑滾動至最新情節
   useEffect(() => {
     if (viewMode === 'play') {
-      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      if (errorMessage && errorRef.current) {
+        errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else {
+        chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
     }
-  }, [turns, isAdvancingTurn, viewMode]);
+  }, [turns, isAdvancingTurn, errorMessage, viewMode]);
 
   // 元件掛載時，若預設為 'play' 模式，自動還原進度與資料
   useEffect(() => {
@@ -334,23 +340,30 @@ export const GameFrontstageView: React.FC<Props> = ({
   const advanceTurn = async (actionText: string, actionType: 'preset' | 'custom') => {
     if (!playingGame || !actionText.trim() || isAdvancingTurn) return;
 
+    // ★★★ 完整快照：記錄行動前之完整狀態，用於出錯或空白時精確回滾 ★★★
+    const previousTurns = turns.map(t => ({ ...t }));
+    const previousChoices = [...currentChoices];
+    const previousPlayerStats = currentPlayerStats;
+    const previousCustomInput = customInputText;
+
     setIsAdvancingTurn(true);
     setErrorMessage(null);
+    setFailedAction(null);
 
-    // 1. 登記玩家在當前回合的行動
+    // 1. 登記玩家在當前回合的行動（樂觀更新供畫面即時呈現）
     const currentRound = turns.length;
-    const updatedTurns = [...turns];
-    if (updatedTurns.length > 0) {
-      updatedTurns[updatedTurns.length - 1] = {
-        ...updatedTurns[updatedTurns.length - 1],
+    const optimisticTurns = turns.map(t => ({ ...t }));
+    if (optimisticTurns.length > 0) {
+      optimisticTurns[optimisticTurns.length - 1] = {
+        ...optimisticTurns[optimisticTurns.length - 1],
         playerAction: actionText.trim(),
         actionType: actionType
       };
     }
-    setTurns(updatedTurns);
+    setTurns(optimisticTurns);
 
     // 2. 組裝歷史送交後端推演
-    const historyPayload: GameTurnHistoryItem[] = updatedTurns.map(t => ({
+    const historyPayload: GameTurnHistoryItem[] = optimisticTurns.map(t => ({
       round: t.round,
       story_segment: t.storySegment,
       player_action: t.playerAction || '',
@@ -367,6 +380,14 @@ export const GameFrontstageView: React.FC<Props> = ({
         current_player_stats: (isStatsEnabled && currentPlayerStats) ? currentPlayerStats : undefined
       });
 
+      // 檢查是否回傳有效劇情與選項（杜絕空白或無選項）
+      if (!response || !response.story_continuation || !response.story_continuation.trim()) {
+        throw new Error('AI 回傳的劇情內容為空白，無法推演新情節');
+      }
+      if (!response.choices || response.choices.length === 0) {
+        throw new Error('AI 未能產生命運選項分支（選項清單為空）');
+      }
+
       // 3. 處理更新後玩家數值狀態
       const nextStats = response.updated_player_stats || currentPlayerStats;
       if (isStatsEnabled && response.updated_player_stats) {
@@ -376,25 +397,36 @@ export const GameFrontstageView: React.FC<Props> = ({
       // 4. 追加新一輪的劇情敘述與更新選項
       const nextTurn: AdventureTurn = {
         round: response.round || currentRound + 1,
-        storySegment: response.story_continuation,
+        storySegment: response.story_continuation.trim(),
         statusSummary: response.status_summary,
         playerStats: isStatsEnabled ? nextStats : undefined,
         statsChanges: response.stats_changes || undefined
       };
 
-      const finalTurns = [...updatedTurns, nextTurn];
+      const finalTurns = [...optimisticTurns, nextTurn];
       const nextChoices = response.choices || [];
 
       setTurns(finalTurns);
       setCurrentChoices(nextChoices);
       setCustomInputText('');
+      setFailedAction(null);
 
-      // 立即持久化儲存
+      // 推進成功後才持久化儲存
       saveAdventureSession(playingGame.id, finalTurns, nextChoices, isStatsEnabled ? nextStats : undefined);
       setLastSavedTime(new Date().toLocaleTimeString());
     } catch (err: any) {
       console.error('推進劇情失敗:', err);
-      setErrorMessage(err.message || 'AI 推演劇情時發生錯誤，請稍後再試或檢查 API Key 設定');
+      const errorMsg = err.message || 'AI 推演劇情時發生錯誤或回應內容空白，請稍候重試或檢查 API Key 設定';
+
+      // ★★★ 當 API 回傳錯誤或空白時，前台跳出提示，並回到錯誤前的選擇回合 ★★★
+      setTurns(previousTurns);
+      setCurrentChoices(previousChoices);
+      setCurrentPlayerStats(previousPlayerStats);
+      if (actionType === 'custom') {
+        setCustomInputText(previousCustomInput || actionText);
+      }
+      setFailedAction({ text: actionText, type: actionType });
+      setErrorMessage(errorMsg);
     } finally {
       setIsAdvancingTurn(false);
     }
@@ -820,19 +852,63 @@ export const GameFrontstageView: React.FC<Props> = ({
       }`}>
         {/* 左側：冒險故事與決策推進主區 */}
         <div className="flex-1 min-w-0 space-y-6 w-full">
-          {/* 錯誤提醒橫幅 */}
+          {/* 錯誤提醒橫幅 (具備重試按鈕與狀態回滾提示) */}
           {errorMessage && (
-            <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                <span>{errorMessage}</span>
+            <div 
+              ref={errorRef}
+              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-rose-950/80 via-slate-900 to-rose-950/80 border-2 border-rose-500/60 text-rose-200 text-xs shadow-2xl shadow-rose-950/50 space-y-3 animate-in shake duration-300"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0 shadow-md">
+                    <AlertCircle className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-bold text-sm text-rose-100">
+                        劇情推演未成功 · 已自動回到選擇回合
+                      </h4>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                        進度已復原
+                      </span>
+                    </div>
+                    <p className="text-xs text-rose-300/90 leading-relaxed font-medium">
+                      {errorMessage}
+                    </p>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      💡 目前冒險進度已完好回復至錯誤發生前的選擇點，未消耗任何進度。你可以重新點選下方選項，或點擊「重試」重新嘗試。
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setErrorMessage(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition shrink-0"
+                  title="關閉錯誤提示"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={() => setErrorMessage(null)}
-                className="text-rose-400 hover:text-rose-200 text-xs font-mono ml-2 underline"
-              >
-                關閉
-              </button>
+
+              {/* 快速重試與操作按鈕 */}
+              <div className="flex items-center gap-2.5 pt-2 border-t border-rose-500/20 flex-wrap">
+                {failedAction && (
+                  <button
+                    onClick={() => advanceTurn(failedAction.text, failedAction.type)}
+                    disabled={isAdvancingTurn}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md transition"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>重試剛才行動：{failedAction.text.length > 20 ? failedAction.text.slice(0, 20) + '...' : failedAction.text}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setErrorMessage(null)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+                >
+                  關閉提示並重選
+                </button>
+              </div>
             </div>
           )}
 
@@ -914,6 +990,11 @@ export const GameFrontstageView: React.FC<Props> = ({
                 <Compass className="w-4 h-4 text-emerald-400" />
                 <span>當前命運抉擇（請選擇或輸入行動推進劇情）：</span>
               </span>
+              {errorMessage && (
+                <span className="text-[10px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/40 px-2 py-0.5 rounded-full">
+                  已恢復至此回合選項
+                </span>
+              )}
             </div>
             <span className="text-[10px] font-mono text-slate-500">
               {allowCustom ? '支援自選與自創輸入' : '僅限點選系統預設選項'}

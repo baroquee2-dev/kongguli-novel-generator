@@ -659,11 +659,20 @@ async def api_ai_game_turn(req: GameTurnRequest):
             user_prompt=user_prompt,
             max_tokens=1500
         )
+        if not raw_resp or not raw_resp.strip():
+            raise HTTPException(status_code=502, detail="AI 模型回傳內容為空白，請檢查 API Key 設定或網路連線")
+
         data = extract_json_data(raw_resp)
         if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
             data = data[0]
 
-        story_continuation = data.get("story_continuation") or data.get("story") or "情節繼續推進中..."
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=502, detail="AI 模型未回傳有效的 JSON 劇情格式")
+
+        story_continuation = (data.get("story_continuation") or data.get("story") or "").strip()
+        if not story_continuation:
+            raise HTTPException(status_code=502, detail="AI 模型未能產出劇情正文（回傳文字為空白）")
+
         raw_choices = data.get("choices") or []
         formatted_choices = []
         if isinstance(raw_choices, list):
@@ -695,13 +704,15 @@ async def api_ai_game_turn(req: GameTurnRequest):
         current_round = len(req.history) + 1
 
         return {
-            "story_continuation": story_continuation.strip(),
+            "story_continuation": story_continuation,
             "choices": formatted_choices[:target_choice_count],
             "status_summary": status_summary,
             "updated_player_stats": updated_player_stats.strip() if updated_player_stats else current_player_stats,
             "stats_changes": stats_changes.strip(),
             "round": current_round
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"遊戲回合推演失敗: {str(e)}")
 

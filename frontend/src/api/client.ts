@@ -462,10 +462,17 @@ export const api = {
       body: JSON.stringify(req),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: '遊戲回合推進失敗' }));
+      const err = await res.json().catch(() => ({ detail: '伺服器推演連線失敗' }));
       throw new Error(err.detail || '遊戲回合推進失敗');
     }
-    return res.json();
+    const data: GameTurnResponse = await res.json();
+    if (!data || !data.story_continuation || !data.story_continuation.trim()) {
+      throw new Error('AI 回傳的劇情內容為空白，無法推演新情節');
+    }
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error('AI 未能產生命運選項分支（選項為空）');
+    }
+    return data;
   },
 };
 
