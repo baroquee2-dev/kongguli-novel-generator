@@ -4,7 +4,8 @@ import { api } from '../api/client';
 import { 
   Gamepad2, ArrowLeft, RotateCcw, Send, Sparkles, ShieldAlert, 
   BookOpen, Users, MapPin, Brain, Search, Clock, Compass, Layers, 
-  CheckCircle2, ChevronRight, Loader2, AlertCircle, Settings
+  CheckCircle2, ChevronRight, Loader2, AlertCircle, Settings, Download,
+  Save, Play
 } from 'lucide-react';
 
 interface Props {
@@ -23,6 +24,60 @@ interface AdventureTurn {
   statusSummary?: string;
 }
 
+interface GameAdventureSession {
+  gameId: string;
+  turns: AdventureTurn[];
+  currentChoices: GameChoiceOption[];
+  updatedAt: string;
+  roundCount: number;
+}
+
+const STORAGE_PREFIX = 'kongguli_game_session_';
+const ACTIVE_GAME_KEY = 'kongguli_game_active_id';
+const VIEW_MODE_KEY = 'kongguli_game_view_mode';
+
+// 讀取指定遊戲的持久化遊玩進度
+const loadSavedSession = (gameId: string): GameAdventureSession | null => {
+  try {
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}${gameId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.turns) && parsed.turns.length > 0) {
+      return parsed;
+    }
+  } catch (e) {
+    console.error('Failed to parse saved session:', e);
+  }
+  return null;
+};
+
+// 儲存指定遊戲的遊玩進度
+const saveAdventureSession = (
+  gameId: string, 
+  turns: AdventureTurn[], 
+  currentChoices: GameChoiceOption[]
+) => {
+  try {
+    const session: GameAdventureSession = {
+      gameId,
+      turns,
+      currentChoices,
+      updatedAt: new Date().toLocaleTimeString(),
+      roundCount: turns.length
+    };
+    localStorage.setItem(`${STORAGE_PREFIX}${gameId}`, JSON.stringify(session));
+  } catch (e) {
+    console.error('Failed to save session:', e);
+  }
+};
+
+// 清除指定遊戲的存檔進度
+const removeSavedSession = (gameId: string) => {
+  try {
+    localStorage.removeItem(`${STORAGE_PREFIX}${gameId}`);
+  } catch {}
+};
+
 export const GameFrontstageView: React.FC<Props> = ({
   games,
   currentGame,
@@ -30,8 +85,26 @@ export const GameFrontstageView: React.FC<Props> = ({
   onBackToStudio,
   onOpenSettings,
 }) => {
-  // 檢視模式：'lobby' (遊戲大廳/專案庫列表) | 'play' (冒險遊玩中)
-  const [viewMode, setViewMode] = useState<'lobby' | 'play'>('lobby');
+  // 檢視模式預設：讀取上次儲存的 viewMode 與 activeGameId (若之前在遊玩中則保持在遊玩中)
+  const [viewMode, setViewMode] = useState<'lobby' | 'play'>(() => {
+    try {
+      const savedMode = localStorage.getItem(VIEW_MODE_KEY);
+      const activeId = localStorage.getItem(ACTIVE_GAME_KEY);
+      if (savedMode === 'play' && activeId) {
+        return 'play';
+      }
+    } catch {}
+    return 'lobby';
+  });
+
+  // 當前遊玩中專案 ID
+  const [activeGameId, setActiveGameId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(ACTIVE_GAME_KEY) || currentGame?.id || '';
+    } catch {
+      return currentGame?.id || '';
+    }
+  });
 
   // 當前遊玩的完整遊戲資料
   const [playingGame, setPlayingGame] = useState<GameProject | null>(currentGame);
@@ -43,6 +116,7 @@ export const GameFrontstageView: React.FC<Props> = ({
   const [customInputText, setCustomInputText] = useState('');
   const [isAdvancingTurn, setIsAdvancingTurn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastSavedTime, setLastSavedTime] = useState<string>('');
 
   // 側邊世界觀手冊開關
   const [showManualDrawer, setShowManualDrawer] = useState(false);
@@ -60,15 +134,61 @@ export const GameFrontstageView: React.FC<Props> = ({
     }
   }, [turns, isAdvancingTurn, viewMode]);
 
-  // 同步 currentGame
+  // 元件掛載時，若預設為 'play' 模式，自動還原進度與資料
   useEffect(() => {
-    if (currentGame && (!playingGame || playingGame.id === currentGame.id)) {
-      setPlayingGame(currentGame);
-    }
-  }, [currentGame]);
+    const restoreSavedProgress = async () => {
+      const targetId = activeGameId || currentGame?.id;
+      if (!targetId) return;
 
-  // 進入遊戲冒險 (初始化啟始劇情與啟始選項)
-  const handleStartGame = async (gameId: string) => {
+      const saved = loadSavedSession(targetId);
+      if (saved && saved.turns.length > 0) {
+        setTurns(saved.turns);
+        setCurrentChoices(saved.currentChoices);
+        setLastSavedTime(saved.updatedAt);
+
+        // 確保載入完整的遊戲資料
+        if (!playingGame || playingGame.id !== targetId) {
+          try {
+            const g = await api.getGame(targetId);
+            setPlayingGame(g);
+          } catch (e) {
+            console.error('Failed to load active game on restore:', e);
+          }
+        }
+      } else if (targetId) {
+        // 若無現成存檔但處於 play 模式，初始化該專案
+        handleResumeOrStartGame(targetId, false);
+      }
+    };
+
+    if (viewMode === 'play') {
+      restoreSavedProgress();
+    }
+  }, []);
+
+  // 當 turns 或 choices 變化時，自動持久化至 localStorage
+  useEffect(() => {
+    if (playingGame && turns.length > 0 && viewMode === 'play') {
+      saveAdventureSession(playingGame.id, turns, currentChoices);
+      const timeStr = new Date().toLocaleTimeString();
+      setLastSavedTime(timeStr);
+      try {
+        localStorage.setItem(ACTIVE_GAME_KEY, playingGame.id);
+        localStorage.setItem(VIEW_MODE_KEY, 'play');
+      } catch {}
+    }
+  }, [turns, currentChoices, playingGame, viewMode]);
+
+  // 切換回大廳
+  const handleSwitchToLobby = () => {
+    setViewMode('lobby');
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, 'lobby');
+    } catch {}
+  };
+
+  // 進入/繼續/重啟遊戲冒險
+  const handleResumeOrStartGame = async (gameId: string, forceRestart: boolean = false) => {
     setLoadingGame(true);
     setErrorMessage(null);
     try {
@@ -80,8 +200,25 @@ export const GameFrontstageView: React.FC<Props> = ({
         await onSelectGame(gameId);
       }
       setPlayingGame(gameData);
+      setActiveGameId(gameId);
+      try {
+        localStorage.setItem(ACTIVE_GAME_KEY, gameId);
+        localStorage.setItem(VIEW_MODE_KEY, 'play');
+      } catch {}
 
-      // 提取第 5 層單一啟始劇情與啟始選項
+      // 若非強制重開，先檢查是否有存檔
+      const existingSession = !forceRestart ? loadSavedSession(gameId) : null;
+      if (existingSession && existingSession.turns.length > 0) {
+        // 恢復已有的冒險紀錄
+        setTurns(existingSession.turns);
+        setCurrentChoices(existingSession.currentChoices);
+        setLastSavedTime(existingSession.updatedAt);
+        setCustomInputText('');
+        setViewMode('play');
+        return;
+      }
+
+      // 否則初始化新一輪冒險 (第 1 回合)
       const initialStory = gameData.chapters && gameData.chapters.length > 0 
         ? gameData.chapters[0] 
         : null;
@@ -95,15 +232,18 @@ export const GameFrontstageView: React.FC<Props> = ({
             { id: 'opt-init-3', text: '嘗試尋找同伴或搜集情報', hint: '情報與社交' }
           ];
 
-      // 初始化第 1 回合
-      setTurns([
+      const initialTurns: AdventureTurn[] = [
         {
           round: 1,
           storySegment: startingPlot,
         }
-      ]);
+      ];
+
+      setTurns(initialTurns);
       setCurrentChoices(startingOptions);
       setCustomInputText('');
+      saveAdventureSession(gameId, initialTurns, startingOptions);
+      setLastSavedTime(new Date().toLocaleTimeString());
       setViewMode('play');
     } catch (err: any) {
       console.error('進入遊戲失敗:', err);
@@ -113,12 +253,46 @@ export const GameFrontstageView: React.FC<Props> = ({
     }
   };
 
-  // 重新開始本專案冒險
+  // 重新開始本專案冒險 (清除該專案存檔並重置)
   const handleRestartAdventure = () => {
     if (!playingGame) return;
-    if (window.confirm('確定要重新開始當前冒險嗎？目前的遊玩紀錄將會重置回啟始劇情。')) {
-      handleStartGame(playingGame.id);
+    if (window.confirm('確定要重新開始當前冒險嗎？現有遊玩紀錄將會重置回第 1 回合啟始劇情。')) {
+      removeSavedSession(playingGame.id);
+      handleResumeOrStartGame(playingGame.id, true);
     }
+  };
+
+  // 匯出冒險遊玩紀錄為 Markdown 檔
+  const handleExportAdventureTranscript = () => {
+    if (!playingGame || turns.length === 0) return;
+    const lines: string[] = [];
+    lines.push(`# 《${playingGame.title}》互動冒險遊玩紀錄\n`);
+    lines.push(`- **遊戲類型**：${playingGame.genre} | **風格基調**：${playingGame.tone}`);
+    lines.push(`- **規則模式**：${playingGame.game_rules?.strict_rule_enforcement ? '強硬遊戲規則（防暴走）' : '劇情自由發展'}`);
+    lines.push(`- **總進行回合**：共 ${turns.length} 回合`);
+    lines.push(`- **紀錄儲存時間**：${new Date().toLocaleString()}\n`);
+    lines.push(`---\n`);
+
+    turns.forEach((t) => {
+      lines.push(`## 【第 ${t.round} 回合】`);
+      if (t.statusSummary) {
+        lines.push(`> 局勢摘要：${t.statusSummary}\n`);
+      }
+      lines.push(`${t.storySegment}\n`);
+      if (t.playerAction) {
+        lines.push(`👉 **你的抉擇行動 (${t.actionType === 'custom' ? '自由輸入' : '預設選項'})**：${t.playerAction}\n`);
+      }
+      lines.push(`---\n`);
+    });
+
+    const content = lines.join('\n');
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${playingGame.title}_冒險紀錄_第${turns.length}回合.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // 推進遊戲回合核心邏輯
@@ -163,9 +337,16 @@ export const GameFrontstageView: React.FC<Props> = ({
         statusSummary: response.status_summary
       };
 
-      setTurns([...updatedTurns, nextTurn]);
-      setCurrentChoices(response.choices || []);
+      const finalTurns = [...updatedTurns, nextTurn];
+      const nextChoices = response.choices || [];
+
+      setTurns(finalTurns);
+      setCurrentChoices(nextChoices);
       setCustomInputText('');
+
+      // 立即持久化儲存
+      saveAdventureSession(playingGame.id, finalTurns, nextChoices);
+      setLastSavedTime(new Date().toLocaleTimeString());
     } catch (err: any) {
       console.error('推進劇情失敗:', err);
       setErrorMessage(err.message || 'AI 推演劇情時發生錯誤，請稍後再試或檢查 API Key 設定');
@@ -253,7 +434,7 @@ export const GameFrontstageView: React.FC<Props> = ({
                 沉浸式文字冒險，即刻開啟命運分支
               </h2>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                所有遊戲項目的世界觀舞台、登場角色與頂層規則皆已就緒。點擊下方任一專案即可載入啟始劇情，隨著你的每一次抉擇自動由 AI 演算演繹專屬發展！
+                所有遊戲項目的世界觀舞台、登場角色與頂層規則皆已就緒。點擊下方任一專案即可載入啟始劇情，冒險進度會自動保存於瀏覽器中，隨時可自由切換介面繼續進行！
               </p>
             </div>
 
@@ -299,6 +480,9 @@ export const GameFrontstageView: React.FC<Props> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredGames.map((game) => {
                 const isCurrent = currentGame?.id === game.id;
+                const savedSession = loadSavedSession(game.id);
+                const hasProgress = savedSession && savedSession.turns && savedSession.turns.length > 0;
+
                 return (
                   <div
                     key={game.id}
@@ -346,9 +530,23 @@ export const GameFrontstageView: React.FC<Props> = ({
                     {/* 卡片內容 */}
                     <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
                       <div className="space-y-2">
-                        <h3 className="text-base font-bold text-slate-100 group-hover:text-emerald-300 transition line-clamp-1">
-                          {game.title}
-                        </h3>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="text-base font-bold text-slate-100 group-hover:text-emerald-300 transition line-clamp-1">
+                            {game.title}
+                          </h3>
+                        </div>
+
+                        {/* 若有存檔紀錄，呈現進度徽章 */}
+                        {hasProgress && (
+                          <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-mono text-emerald-300">
+                            <span className="flex items-center gap-1.5">
+                              <Save className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>已推進至第 <strong>{savedSession.roundCount}</strong> 回合</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400">存於 {savedSession.updatedAt}</span>
+                          </div>
+                        )}
+
                         <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
                           {game.main_plot || '世界舞台與主線任務已載入，等待玩家進入探索...'}
                         </p>
@@ -372,25 +570,54 @@ export const GameFrontstageView: React.FC<Props> = ({
                         </span>
                       </div>
 
-                      {/* 進入遊戲按鈕 */}
-                      <button
-                        onClick={() => handleStartGame(game.id)}
-                        disabled={loadingGame}
-                        className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition group-hover:shadow-emerald-500/30"
-                      >
-                        {loadingGame && playingGame?.id === game.id ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>正在啟動遊戲...</span>
-                          </>
+                      {/* 進入/繼續遊戲按鈕群 */}
+                      <div className="space-y-2">
+                        {hasProgress ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleResumeOrStartGame(game.id, false)}
+                              disabled={loadingGame}
+                              className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition group-hover:shadow-emerald-500/30"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>繼續冒險 (回合 {savedSession.roundCount})</span>
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`確定要清除《${game.title}》的現有紀錄並重新開始嗎？`)) {
+                                  handleResumeOrStartGame(game.id, true);
+                                }
+                              }}
+                              disabled={loadingGame}
+                              title="清除紀錄並重新開始"
+                              className="py-2.5 px-3 rounded-xl bg-slate-800/80 hover:bg-rose-950/40 hover:border-rose-500/50 hover:text-rose-300 border border-slate-700/60 text-slate-400 text-xs font-semibold flex items-center justify-center gap-1 transition"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>重開</span>
+                            </button>
+                          </div>
                         ) : (
-                          <>
-                            <Gamepad2 className="w-4 h-4" />
-                            <span>進入遊戲冒險</span>
-                            <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-                          </>
+                          <button
+                            onClick={() => handleResumeOrStartGame(game.id, false)}
+                            disabled={loadingGame}
+                            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition group-hover:shadow-emerald-500/30"
+                          >
+                            {loadingGame && playingGame?.id === game.id ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <span>正在啟動遊戲...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Gamepad2 className="w-4 h-4" />
+                                <span>進入遊戲冒險</span>
+                                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+                              </>
+                            )}
+                          </button>
                         )}
-                      </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -409,7 +636,7 @@ export const GameFrontstageView: React.FC<Props> = ({
       <header className="h-16 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-40">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setViewMode('lobby')}
+            onClick={handleSwitchToLobby}
             className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300 hover:text-white transition"
             title="返回遊戲前台大廳"
           >
@@ -429,6 +656,12 @@ export const GameFrontstageView: React.FC<Props> = ({
                 <span className="text-[10px] font-bold bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
                   回合 {turns.length}
                 </span>
+                {lastSavedTime && (
+                  <span className="hidden md:inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400/80">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span>進度已自動儲存 ({lastSavedTime})</span>
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 text-[10px] text-slate-400">
                 <span>{playingGame?.genre}</span>
@@ -445,6 +678,15 @@ export const GameFrontstageView: React.FC<Props> = ({
 
         {/* 右側操作按鈕 */}
         <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            onClick={handleExportAdventureTranscript}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-xs font-medium text-slate-300 hover:text-white transition"
+            title="匯出完整冒險遊玩紀錄為 Markdown 檔"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-400" />
+            <span className="hidden sm:inline">匯出紀錄</span>
+          </button>
+
           <button
             onClick={onOpenSettings}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-950/40 hover:bg-purple-900/40 border border-purple-500/30 text-xs font-medium text-purple-200 transition"
