@@ -779,7 +779,7 @@ export const GameFrontstageView: React.FC<Props> = ({
   // ==================== 2. 遊戲進行中視圖 (Play Session) ====================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative">
-      {/* 🌌 動態淡色循環背景圖層 (封面圖與角色圖淡入淡出輪播，清晰沉浸) 🌌 */}
+      {/* 🌌 動態淡色循環背景圖層 (封面圖與角色圖淡入淡出輪播，完整全貌呈現) 🌌 */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {backgroundSlides.length > 0 ? (
           <>
@@ -789,20 +789,31 @@ export const GameFrontstageView: React.FC<Props> = ({
                 <div
                   key={`${slide.url}-${idx}`}
                   className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
-                    isActive ? 'opacity-55' : 'opacity-0'
+                    isActive ? 'opacity-100' : 'opacity-0'
                   }`}
                 >
+                  {/* 背景氛圍擴散底層 (微模糊光暈，填補周圍氛圍) */}
                   <img
                     src={slide.url}
-                    alt={slide.label}
-                    className="w-full h-full object-cover object-center filter saturate-110 brightness-100 transform scale-105 transition-transform duration-[8000ms] ease-out"
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute inset-0 w-full h-full object-cover object-center filter blur-3xl opacity-15"
                   />
+
+                  {/* 主體展示層：縮小並完整居中呈現 (object-contain，完整看到角色與封面全貌) */}
+                  <div className="absolute inset-0 flex items-center justify-center p-8 sm:p-14 md:p-20">
+                    <img
+                      src={slide.url}
+                      alt={slide.label}
+                      className="max-h-[62vh] sm:max-h-[70vh] max-w-[85vw] sm:max-w-[65vw] w-auto h-auto object-contain filter saturate-105 brightness-95 opacity-40 drop-shadow-[0_10px_35px_rgba(0,0,0,0.8)] transition-transform duration-[8000ms] ease-out"
+                    />
+                  </div>
                 </div>
               );
             })}
-            {/* 輕量柔和半透明暗層，讓背景封面與角色清晰美麗呈現，同時兼顧文字舒適可讀 */}
-            <div className="absolute inset-0 bg-slate-950/45" />
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-transparent to-slate-950/75" />
+            {/* 柔和微暗漸層，確保背景與前景文字完美融合 */}
+            <div className="absolute inset-0 bg-slate-950/30" />
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/50 via-transparent to-slate-950/60" />
           </>
         ) : (
           /* 若無圖片時的科技感暗夜漸層與環境光 */
