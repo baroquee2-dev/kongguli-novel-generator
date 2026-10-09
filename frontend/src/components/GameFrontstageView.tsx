@@ -5,7 +5,7 @@ import {
   Gamepad2, ArrowLeft, RotateCcw, Send, Sparkles, ShieldAlert, 
   BookOpen, Users, MapPin, Brain, Search, Clock, Compass, Layers, 
   CheckCircle2, ChevronRight, Loader2, AlertCircle, Settings, Download,
-  Save, Play, HeartPulse, Activity
+  Save, Play, HeartPulse, Activity, Copy, Check, X
 } from 'lucide-react';
 
 interface Props {
@@ -123,6 +123,10 @@ export const GameFrontstageView: React.FC<Props> = ({
   const [isAdvancingTurn, setIsAdvancingTurn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastSavedTime, setLastSavedTime] = useState<string>('');
+
+  // 右側固定角色狀態欄開關 (當啟用數值狀態時預設開啟固定於右側)
+  const [showStatsBar, setShowStatsBar] = useState(true);
+  const [copiedStats, setCopiedStats] = useState(false);
 
   // 側邊世界觀手冊開關
   const [showManualDrawer, setShowManualDrawer] = useState(false);
@@ -417,6 +421,8 @@ export const GameFrontstageView: React.FC<Props> = ({
 
   const allowCustom = playingGame?.game_rules?.allow_custom_input ?? true;
   const isStrict = playingGame?.game_rules?.strict_rule_enforcement ?? true;
+  const isStatsEnabled = Boolean(playingGame?.game_rules?.enable_player_stats);
+  const latestStatsChanges = turns.length > 0 ? turns[turns.length - 1]?.statsChanges : undefined;
 
   // ==================== 1. 遊戲大廳視圖 (Lobby) ====================
   if (viewMode === 'lobby') {
@@ -759,6 +765,22 @@ export const GameFrontstageView: React.FC<Props> = ({
             <span className="hidden sm:inline">AI 設定</span>
           </button>
 
+          {/* 角色狀態欄固定顯示切換按鈕 */}
+          {isStatsEnabled && (
+            <button
+              onClick={() => setShowStatsBar(!showStatsBar)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
+                showStatsBar
+                  ? 'bg-rose-950/60 border-rose-500/60 text-rose-200 shadow-sm shadow-rose-950/40'
+                  : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700/60 text-slate-400'
+              }`}
+              title={showStatsBar ? "收起右側角色狀態欄" : "固定顯示右側角色狀態欄"}
+            >
+              <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
+              <span className="hidden sm:inline">角色狀態</span>
+            </button>
+          )}
+
           <button
             onClick={() => setShowManualDrawer(!showManualDrawer)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
@@ -791,55 +813,31 @@ export const GameFrontstageView: React.FC<Props> = ({
       </header>
 
       {/* 冒險進行中主介面 */}
-      <div className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 flex flex-col space-y-6 pb-28">
-        {/* 錯誤提醒橫幅 */}
-        {errorMessage && (
-          <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-              <span>{errorMessage}</span>
-            </div>
-            <button
-              onClick={() => setErrorMessage(null)}
-              className="text-rose-400 hover:text-rose-200 text-xs font-mono ml-2 underline"
-            >
-              關閉
-            </button>
-          </div>
-        )}
-
-        {/* 玩家數值狀態看板 (常駐固定記憶 HUD) */}
-        {playingGame?.game_rules?.enable_player_stats && (
-          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-rose-950/40 via-slate-900/90 to-purple-950/40 border border-rose-500/40 shadow-xl relative overflow-hidden backdrop-blur-md">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2.5">
+      <div className={`flex-1 w-full mx-auto p-4 sm:p-6 pb-28 transition-all ${
+        isStatsEnabled && showStatsBar
+          ? 'max-w-[1536px] flex flex-col lg:flex-row items-start gap-6'
+          : 'max-w-5xl flex flex-col space-y-6'
+      }`}>
+        {/* 左側：冒險故事與決策推進主區 */}
+        <div className="flex-1 min-w-0 space-y-6 w-full">
+          {/* 錯誤提醒橫幅 */}
+          {errorMessage && (
+            <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-md">
-                  <HeartPulse className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xs sm:text-sm font-bold text-rose-200">
-                      玩家當前數值狀態（常駐固定記憶）
-                    </h3>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                      LIVE HUD
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-slate-400">
-                    此數值狀態隨劇情發展即時演變，AI 將永遠鎖定此記憶判定生死、傷創與行動代價
-                  </p>
-                </div>
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{errorMessage}</span>
               </div>
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="text-rose-400 hover:text-rose-200 text-xs font-mono ml-2 underline"
+              >
+                關閉
+              </button>
             </div>
-            
-            <div className="p-3 bg-slate-950/90 rounded-xl border border-rose-500/20 font-mono text-xs text-rose-100 whitespace-pre-wrap leading-relaxed shadow-inner">
-              {currentPlayerStats || '（尚無數值紀錄）'}
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* 故事動態對話滾動歷程 (Timeline Cards) */}
-        <div className="space-y-6">
+          {/* 故事動態對話滾動歷程 (Timeline Cards) */}
+          <div className="space-y-6">
           {turns.map((turn) => {
             return (
               <div key={turn.round} className="space-y-4 animate-in fade-in duration-300">
@@ -1015,6 +1013,116 @@ export const GameFrontstageView: React.FC<Props> = ({
           <div ref={chatBottomRef} />
         </div>
       </div>
+
+      {/* 右側：固定顯示的角色狀態欄 (Permanent Character HUD) */}
+      {isStatsEnabled && showStatsBar && (
+        <aside className="w-full lg:w-80 xl:w-96 shrink-0 lg:sticky lg:top-20 space-y-4 z-20 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="rounded-2xl bg-gradient-to-b from-rose-950/60 via-slate-900/95 to-slate-950 border border-rose-500/40 shadow-2xl backdrop-blur-md overflow-hidden flex flex-col max-h-[calc(100vh-6.5rem)]">
+            {/* 頂部標題列 */}
+            <div className="p-4 border-b border-rose-500/30 bg-rose-950/40 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-md">
+                  <HeartPulse className="w-4 h-4 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs sm:text-sm font-bold text-rose-200">
+                      角色狀態欄
+                    </h3>
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      固定右側
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    常駐固定記憶 · 即時演變
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(currentPlayerStats || '');
+                    setCopiedStats(true);
+                    setTimeout(() => setCopiedStats(false), 2000);
+                  }}
+                  title="複製狀態文字"
+                  className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                >
+                  {copiedStats ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowStatsBar(false)}
+                  title="收起右側狀態欄"
+                  className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* 狀態欄滾動主體 */}
+            <div className="p-4 overflow-y-auto space-y-4 flex-1 text-xs">
+              {/* 最新一輪數值變動 (如有) */}
+              {latestStatsChanges && (
+                <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs space-y-1 animate-in fade-in">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-400 text-[11px]">
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>最新一輪數值變更</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed font-mono">
+                    {latestStatsChanges}
+                  </p>
+                </div>
+              )}
+
+              {/* 當前角色數值卡片 */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="font-semibold text-rose-300 flex items-center gap-1">
+                    <Sparkles className="w-3 text-rose-400" />
+                    當前角色數值與持有狀態
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-500">
+                    第 {turns.length} 回合
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-slate-950/90 rounded-xl border border-rose-500/20 font-mono text-xs text-rose-100 whitespace-pre-wrap leading-relaxed shadow-inner">
+                  {currentPlayerStats || '（尚無數值紀錄）'}
+                </div>
+              </div>
+
+              {/* 規則約束說明 */}
+              <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-[10px] text-slate-400 leading-relaxed space-y-1">
+                <p className="font-semibold text-slate-300">
+                  🛡️ AI 常駐固定記憶機制：
+                </p>
+                <p>
+                  右側狀態欄為本遊戲最高優先級約束，AI 將永遠鎖定此記憶判定玩家行動代價、勝負、資源消耗與生死。
+                </p>
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
+    </div>
+
+    {/* 當開啟角色狀態但被玩家暫時收起時，顯示右下角快速展開懸浮按鈕 */}
+    {isStatsEnabled && !showStatsBar && (
+      <button
+        onClick={() => setShowStatsBar(true)}
+        className="fixed right-5 bottom-24 z-30 flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-xs shadow-xl shadow-rose-950/60 transition transform hover:scale-105 border border-rose-400/40"
+        title="固定展開右側角色狀態欄"
+      >
+        <HeartPulse className="w-4 h-4 animate-pulse" />
+        <span>展開角色狀態欄</span>
+      </button>
+    )}
 
       {/* 側邊可折疊：世界觀與NPC手冊抽屜 (Manual Drawer) */}
       {showManualDrawer && (
