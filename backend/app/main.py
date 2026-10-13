@@ -553,12 +553,124 @@ async def api_ai_continue_writing(req: ContinueWritingRequest):
         raise HTTPException(status_code=500, detail=f"續寫失敗: {str(e)}")
 
 
+# ==================== 4.45 遊戲長時記憶輔助模組 ====================
+def build_game_timeline_context(history: List[GameTurnHistoryItem]) -> tuple[str, str]:
+    """
+    遊戲模式第一層長時記憶：
+    將早期歷史回合 (第 1 至 第 N-4 回合) 提煉為高密度大事記時間線 (Adventure Timeline Chain)；
+    最近 4 回合保留完整情境 (Immediate Context)。
+    如果總回合數 <= 4，則大事記時間線為空，所有歷史歸為即時情境。
+    """
+    if not history:
+        return ("", "（這是遊戲的第一個分歧決策點，尚無歷史紀錄）")
+
+    total_turns = len(history)
+    
+    # 若回合數 <= 4，全部保留為即時詳細情境
+    if total_turns <= 4:
+        recent_lines = []
+        for h in history:
+            act_type_tag = "【玩家自由鍵入行動】" if h.choice_type == 'custom' else "【玩家選擇之選項】"
+            recent_lines.append(f"--- [第 {h.round} 回合] ---\n情境描述：{h.story_segment}\n{act_type_tag}：{h.player_action}")
+        recent_block = "\n\n".join(recent_lines)
+        return ("", recent_block)
+
+    # 若回合數 > 4：前 1 ~ N-4 回合提煉為大事記時間線
+    early_history = history[:-4]
+    recent_history = history[-4:]
+
+    timeline_entries = []
+    for h in early_history:
+        clean_story = (h.story_segment or "").strip().replace("\n", " ")
+        story_synopsis = clean_story[:120] + "..." if len(clean_story) > 120 else clean_story
+        act_desc = (h.player_action or "").strip()
+        timeline_entries.append(
+            f"* 【第 {h.round} 回合大事記】：玩家做出抉擇「{act_desc}」-> 局勢發展：{story_synopsis}"
+        )
+
+    timeline_text = (
+        "【★★★★★ 長時記憶：冒險全歷程大事記時間線 (Adventure Timeline Chain) ★★★★★】\n"
+        "（以下是自第 1 回合起累積的大事記因果鏈，請嚴格前後呼應，維持長線因果閉環，杜絕吃書矛盾）：\n\n"
+        + "\n\n".join(timeline_entries)
+        + "\n\n"
+    )
+
+    recent_lines = []
+    for h in recent_history:
+        act_type_tag = "【玩家自由鍵入行動】" if h.choice_type == 'custom' else "【玩家選擇之選項】"
+        recent_lines.append(f"--- [第 {h.round} 回合] ---\n情境描述：{h.story_segment}\n{act_type_tag}：{h.player_action}")
+    recent_block = "\n\n".join(recent_lines)
+
+    return (timeline_text, recent_block)
+
+
+def build_game_lorebook_context(game: Novel, current_action: str, recent_history_text: str, custom_instruction: str = "") -> tuple[str, list[dict]]:
+    """
+    遊戲模式第二層長時記憶：世界書與關鍵伏筆庫 (Lorebook) 智慧關鍵字掃描與常駐激活機制
+    掃描遊戲專案背景、當前玩家行動、直前情境脈絡與額外指示，智慧喚醒符合的世界書卡片。
+    """
+    if not hasattr(game, 'lore_items') or not game.lore_items:
+        return ("", [])
+
+    scan_corpus = f"{game.title} {game.world_background or ''} {current_action} {recent_history_text} {custom_instruction}".lower()
+
+    triggered_items = []
+    for item in game.lore_items:
+        if not item.is_enabled:
+            continue
+
+        trigger_reason = None
+        # 1. 常駐全域生效
+        if item.is_constant:
+            trigger_reason = "常駐生效"
+        # 2. 標題完全命中
+        elif item.title and item.title.lower() in scan_corpus:
+            trigger_reason = f"命中詞條標題「{item.title}」"
+        # 3. 關鍵字觸發
+        else:
+            for kw in (item.keywords or []):
+                kw_clean = kw.strip().lower()
+                if kw_clean and kw_clean in scan_corpus:
+                    trigger_reason = f"命中關鍵字「{kw.strip()}」"
+                    break
+
+        if trigger_reason:
+            triggered_items.append({
+                "id": item.id,
+                "title": item.title,
+                "category": item.category,
+                "trigger_reason": trigger_reason,
+                "keywords": item.keywords or [],
+                "content": item.content.strip()
+            })
+
+    if not triggered_items:
+        return ("", [])
+
+    entries_text = []
+    for item in triggered_items:
+        kw_display = f" [喚醒原因: {item['trigger_reason']}]" if item.get('trigger_reason') else ""
+        entries_text.append(
+            f"📌【{item['title']}】 (類別: {item['category']}{kw_display}):\n"
+            f"   設定真相與因果法則：{item['content']}"
+        )
+
+    lore_text = (
+        "【★★★★★ 長時記憶：動態喚醒之世界書記憶與關鍵伏筆庫 (Active Lorebook) ★★★★★】\n"
+        "（以下世界觀法則與伏筆因符合當前情境或常駐規則已被喚醒，請務必自然融入情節推演或分歧選項）：\n\n"
+        + "\n\n".join(entries_text)
+        + "\n\n"
+    )
+
+    return (lore_text, triggered_items)
+
+
 # ==================== 4.5 遊戲前台互動遊玩機制 API ====================
 @app.post("/api/ai/game-turn", response_model=GameTurnResponse)
 async def api_ai_game_turn(req: GameTurnRequest):
     """
     遊戲前台每輪對話與抉擇推演 API：
-    根據玩家選擇的選項或自由輸入之行動，結合世界觀設定、登場NPC、地點、世界書記憶庫與頂層遊戲規則，
+    根據玩家選擇的選項或自由輸入之行動，結合世界觀設定、登場NPC、地點、大事記時間線、世界書記憶庫與頂層遊戲規則，
     自動推演下一段劇情正文與新的命運選項。
     """
     game = get_project_or_game(req.game_id)
@@ -598,22 +710,16 @@ async def api_ai_game_turn(req: GameTurnRequest):
     else:
         locs_text = "（依世界舞台自由展開）"
 
-    lore_text = ""
-    if hasattr(game, 'lore_items') and game.lore_items:
-        lore_items_enabled = [item for item in game.lore_items if item.is_enabled]
-        if lore_items_enabled:
-            lore_text = "\n".join([
-                f"- 📌【{item.title}】({item.category}): {item.content}"
-                for item in lore_items_enabled[:5]
-            ])
+    # 3. 構建第一層長時記憶：大事記時間線與直前情境 (Adventure Timeline Chain)
+    timeline_text, recent_history_block = build_game_timeline_context(req.history)
 
-    # 3. 彙整歷史遊玩推進歷程 (最多取最近 4 回合)
-    history_lines = []
-    for h in req.history[-4:]:
-        act_type_tag = "【玩家自由鍵入行動】" if h.choice_type == 'custom' else "【玩家選擇之選項】"
-        history_lines.append(f"--- [第 {h.round} 回合] ---\n情境描述：{h.story_segment}\n{act_type_tag}：{h.player_action}")
-
-    history_block = "\n\n".join(history_lines) if history_lines else "（這是遊戲的第一個分歧決策點）"
+    # 4. 構建第二層長時記憶：世界書與伏筆庫智慧喚醒 (Dynamic Lorebook Trigger)
+    lore_text, triggered_lore_items = build_game_lorebook_context(
+        game=game,
+        current_action=req.current_action,
+        recent_history_text=recent_history_block,
+        custom_instruction=req.custom_instruction or ""
+    )
 
     curr_action_tag = "【玩家自創行動】" if req.action_type == 'custom' else "【玩家點選之選項】"
 
@@ -641,16 +747,13 @@ async def api_ai_game_turn(req: GameTurnRequest):
 【主要探索場景】：
 {locs_text}
 
-【世界書記憶與關鍵伏筆庫】：
-{lore_text or "無特殊常駐伏筆"}
-
-【歷次回合冒險進展脈絡】：
-{history_block}
+{lore_text if lore_text else "【世界書記憶與關鍵伏筆庫】：\n（當前暫無喚醒的特定伏筆條目，請依世界觀常態演繹）\n\n"}{timeline_text}【直前最新回合情境脈絡】：
+{recent_history_block}
 
 【當前玩家最新行動】：
 {curr_action_tag}：{req.current_action}
 
-請根據上述遊戲設定、歷史脈絡以及頂層規則約束，推演接下來發生的劇情，並產出下一輪恰好 {target_choice_count} 個選項：
+請根據上述遊戲設定、長時記憶因果鏈以及頂層規則約束，推演接下來發生的劇情，並產出下一輪恰好 {target_choice_count} 個選項：
 """
 
     try:
@@ -709,7 +812,8 @@ async def api_ai_game_turn(req: GameTurnRequest):
             "status_summary": status_summary,
             "updated_player_stats": updated_player_stats.strip() if updated_player_stats else current_player_stats,
             "stats_changes": stats_changes.strip(),
-            "round": current_round
+            "round": current_round,
+            "triggered_lore_items": triggered_lore_items
         }
     except HTTPException:
         raise

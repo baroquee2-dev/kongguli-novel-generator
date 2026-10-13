@@ -24,6 +24,7 @@ interface AdventureTurn {
   statusSummary?: string;
   playerStats?: string;
   statsChanges?: string;
+  triggeredLore?: { id: string; title: string; category: string; trigger_reason?: string }[];
 }
 
 interface GameAdventureSession {
@@ -454,7 +455,8 @@ export const GameFrontstageView: React.FC<Props> = ({
         storySegment: response.story_continuation.trim(),
         statusSummary: response.status_summary,
         playerStats: isStatsEnabled ? nextStats : undefined,
-        statsChanges: response.stats_changes || undefined
+        statsChanges: response.stats_changes || undefined,
+        triggeredLore: response.triggered_lore_items && response.triggered_lore_items.length > 0 ? response.triggered_lore_items : undefined
       };
 
       const finalTurns = [...optimisticTurns, nextTurn];
@@ -1045,8 +1047,8 @@ export const GameFrontstageView: React.FC<Props> = ({
                   {/* 背景微光 */}
                   <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
-                  {/* 局勢狀態與數值變動提示 */}
-                  {(turn.statusSummary || turn.statsChanges) && (
+                  {/* 局勢狀態、數值變動與長時記憶喚醒提示 */}
+                  {(turn.statusSummary || turn.statsChanges || (turn.triggeredLore && turn.triggeredLore.length > 0)) && (
                     <div className="flex flex-wrap items-center gap-2">
                       {turn.statusSummary && (
                         <div className="text-[11px] font-medium text-emerald-300/90 bg-emerald-950/40 px-3 py-1 rounded-lg border border-emerald-500/20 inline-flex items-center gap-1.5">
@@ -1060,6 +1062,16 @@ export const GameFrontstageView: React.FC<Props> = ({
                           <span>⚡ 數值變動：{turn.statsChanges}</span>
                         </div>
                       )}
+                      {turn.triggeredLore && turn.triggeredLore.map((lore, lIdx) => (
+                        <div 
+                          key={lore.id || lIdx} 
+                          title={lore.trigger_reason ? `喚醒原因：${lore.trigger_reason}` : undefined}
+                          className="text-[11px] font-medium text-cyan-300/90 bg-cyan-950/40 px-3 py-1 rounded-lg border border-cyan-500/30 inline-flex items-center gap-1.5"
+                        >
+                          <Brain className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          <span>📌 喚醒長時記憶伏筆：【{lore.title}】({lore.category})</span>
+                        </div>
+                      ))}
                     </div>
                   )}
 
@@ -1423,6 +1435,48 @@ export const GameFrontstageView: React.FC<Props> = ({
                     <p className="text-[10px] text-slate-400 line-clamp-2">{loc.description}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* 世界書與關鍵伏筆庫 (Lorebook) */}
+            <div className="space-y-2">
+              <span className="font-bold text-cyan-300 flex items-center gap-1.5">
+                <Brain className="w-3.5 h-3.5 text-cyan-400" /> 世界書與關鍵伏筆庫 ({playingGame?.lore_items?.length || 0})
+              </span>
+              <div className="space-y-2">
+                {(!playingGame?.lore_items || playingGame.lore_items.length === 0) ? (
+                  <p className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-[11px] text-slate-500">
+                    本遊戲暫無世界書記憶條目
+                  </p>
+                ) : (
+                  playingGame.lore_items.map((item) => (
+                    <div key={item.id} className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-cyan-200 text-[11px]">
+                          📌 {item.title}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-400 border border-cyan-800/40">
+                            {item.category}
+                          </span>
+                          {item.is_constant && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 font-mono">
+                              常駐
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {item.keywords && item.keywords.length > 0 && (
+                        <div className="flex flex-wrap gap-1 text-[9px] text-slate-400 font-mono">
+                          關鍵字: {item.keywords.join(', ')}
+                        </div>
+                      )}
+                      <p className="text-[10px] text-slate-400 line-clamp-3 leading-relaxed">
+                        {item.content}
+                      </p>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

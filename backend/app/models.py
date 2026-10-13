@@ -220,6 +220,7 @@ class GameTurnResponse(BaseModel):
     updated_player_stats: Optional[str] = Field(default="", description="經此回合推演更新後之玩家數值狀態 (固定記憶)")
     stats_changes: Optional[str] = Field(default="", description="數值狀態變更說明 (如：生命值 -15)")
     round: int = Field(default=1, description="當前回合編號")
+    triggered_lore_items: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="本回合觸發喚醒的世界書長時記憶條目")
 
 
 

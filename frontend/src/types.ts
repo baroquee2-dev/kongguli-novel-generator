@@ -158,5 +158,12 @@ export interface GameTurnResponse {
   updated_player_stats?: string;
   stats_changes?: string;
   round: number;
+  triggered_lore_items?: {
+    id: string;
+    title: string;
+    category: string;
+    trigger_reason?: string;
+    keywords?: string[];
+  }[];
 }
 
