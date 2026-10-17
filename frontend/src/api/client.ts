@@ -1,6 +1,7 @@
 import type { 
   AISettings, Novel, NovelListItem, GameProject, GameListItem, Location, 
-  Character, LoreItem, RecalledScene, GameTurnRequest, GameTurnResponse 
+  Character, LoreItem, RecalledScene, GameTurnRequest, GameTurnResponse,
+  CharacterCard, CharacterCardListItem, ChatSession, ChatSessionListItem, ChatReplyResponse
 } from '../types';
 
 const API_BASE = 'http://localhost:8000/api';
@@ -473,6 +474,156 @@ export const api = {
       throw new Error('AI 未能產生命運選項分支（選項為空）');
     }
     return data;
+  },
+
+  // ==================== 角色聊天版本 API (角色卡 & 對話長時記憶/RAG) ====================
+  async listCharacterCards(): Promise<CharacterCardListItem[]> {
+    const res = await fetch(`${API_BASE}/character-cards`);
+    if (!res.ok) throw new Error('獲取角色卡列表失敗');
+    return res.json();
+  },
+  async getCharacterCard(id: string): Promise<CharacterCard> {
+    const res = await fetch(`${API_BASE}/character-cards/${id}`);
+    if (!res.ok) throw new Error('載入角色卡失敗');
+    return res.json();
+  },
+  async createCharacterCard(card: Partial<CharacterCard>): Promise<CharacterCard> {
+    const res = await fetch(`${API_BASE}/character-cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(card),
+    });
+    if (!res.ok) throw new Error('建立角色卡失敗');
+    return res.json();
+  },
+  async saveCharacterCard(card: CharacterCard): Promise<CharacterCard> {
+    const res = await fetch(`${API_BASE}/character-cards/${card.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(card),
+    });
+    if (!res.ok) throw new Error('保存角色卡失敗');
+    return res.json();
+  },
+  async deleteCharacterCard(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/character-cards/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('刪除角色卡失敗');
+  },
+  async initSampleCharacterCard(): Promise<CharacterCard> {
+    const res = await fetch(`${API_BASE}/character-cards/init-sample`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('建立示範角色卡失敗');
+    return res.json();
+  },
+  async importCharacterCard(file: File): Promise<CharacterCard> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/character-cards/import`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: '匯入角色卡失敗' }));
+      throw new Error(err.detail || '匯入角色卡失敗');
+    }
+    const card: CharacterCard = await res.json();
+    if (card.avatar_url && card.avatar_url.startsWith('/uploads/')) {
+      card.avatar_url = `http://localhost:8000${card.avatar_url}`;
+      return this.saveCharacterCard(card);
+    }
+    return card;
+  },
+  getExportCharacterCardJsonUrl(id: string): string {
+    return `${API_BASE}/character-cards/${id}/export-json`;
+  },
+  async generateCharacterCardByAI(data: { name_hint?: string; rough_idea: string; include_lore?: boolean }): Promise<Partial<CharacterCard>> {
+    const res = await fetch(`${API_BASE}/ai/generate-character-card`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'AI 生成角色卡失敗' }));
+      throw new Error(err.detail || 'AI 生成角色卡失敗');
+    }
+    return res.json();
+  },
+
+  // 角色聊天對話紀錄與推演
+  async listChatSessions(characterId?: string): Promise<ChatSessionListItem[]> {
+    const q = characterId ? `?character_id=${encodeURIComponent(characterId)}` : '';
+    const res = await fetch(`${API_BASE}/character-chats${q}`);
+    if (!res.ok) throw new Error('獲取對話紀錄列表失敗');
+    return res.json();
+  },
+  async createChatSession(data: { character_id: string; user_name?: string; greeting_index?: number }): Promise<ChatSession> {
+    const res = await fetch(`${API_BASE}/character-chats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('建立新對話失敗');
+    return res.json();
+  },
+  async getChatSession(sessionId: string): Promise<ChatSession> {
+    const res = await fetch(`${API_BASE}/character-chats/${sessionId}`);
+    if (!res.ok) throw new Error('載入對話紀錄失敗');
+    return res.json();
+  },
+  async saveChatSession(session: ChatSession): Promise<ChatSession> {
+    const res = await fetch(`${API_BASE}/character-chats/${session.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(session),
+    });
+    if (!res.ok) throw new Error('儲存對話紀錄失敗');
+    return res.json();
+  },
+  async deleteChatSession(sessionId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/character-chats/${sessionId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('刪除對話紀錄失敗');
+  },
+  async sendCharacterChatReply(data: {
+    session_id: string;
+    character_id: string;
+    user_message?: string;
+    is_regenerate?: boolean;
+    custom_instruction?: string;
+  }): Promise<ChatReplyResponse> {
+    const res = await fetch(`${API_BASE}/ai/character-chat/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: '角色對話生成失敗' }));
+      throw new Error(err.detail || '角色對話生成失敗');
+    }
+    return res.json();
+  },
+  async summarizeChatMemory(data: { session_id: string; character_id: string }): Promise<ChatSession> {
+    const res = await fetch(`${API_BASE}/ai/character-chat/summarize-memory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: '提煉長時記憶摘要失敗' }));
+      throw new Error(err.detail || '提煉長時記憶摘要失敗');
+    }
+    return res.json();
+  },
+  async reindexChatRag(sessionId: string): Promise<{ status: string; message: string }> {
+    const res = await fetch(`${API_BASE}/ai/character-chat/reindex-rag/${sessionId}`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('重構對話 RAG 索引失敗');
+    return res.json();
   },
 };
 

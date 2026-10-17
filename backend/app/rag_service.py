@@ -9,7 +9,7 @@ import numpy as np
 import httpx
 
 from app.config import DATA_DIR, get_settings
-from app.models import Novel, Chapter, AISettings, RecalledScene
+from app.models import Novel, Chapter, AISettings, RecalledScene, ChatSession, RecalledChatTurn
 
 RAG_DB_FILE = DATA_DIR / "rag_index.db"
 
@@ -37,6 +37,21 @@ def init_rag_db():
         except Exception:
             pass
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_novel_chap ON chunks (novel_id, chapter_number);")
+
+        # 角色聊天專屬 RAG 歷史對話切塊表
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_chunks (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            character_id TEXT NOT NULL,
+            turn_index INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            vector BLOB,
+            vector_model TEXT,
+            created_at TEXT NOT NULL
+        );
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_chunks_session ON chat_chunks (session_id, turn_index);")
         conn.commit()
 
 # 初始化資料庫表格
@@ -482,3 +497,201 @@ class RAGService:
             + "\n\n"
         )
         return rag_prompt
+
+    # ==================== 角色聊天專屬：歷史對話 RAG 索引與深海語意回撈 ====================
+
+    @staticmethod
+    def build_chat_turn_chunks(session: ChatSession, char_name: str, max_msg_idx: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        將對話紀錄切分為「一問一答回合切塊 (Turn Chunks)」，供向量索引與語意檢索使用
+        """
+        msgs = session.messages if max_msg_idx is None else session.messages[:max_msg_idx]
+        if not msgs:
+            return []
+
+        uname = session.user_name or "你"
+        chunks = []
+        turn_idx = 1
+        i = 0
+        while i < len(msgs):
+            m = msgs[i]
+            role_label = uname if m.role == "user" else char_name
+            lines = [f"{role_label}: {m.content.strip()}"]
+            # 若當前是 user 且下一則是 assistant，合併為完整的一問一答回合
+            if m.role == "user" and (i + 1) < len(msgs) and msgs[i + 1].role == "assistant":
+                lines.append(f"{char_name}: {msgs[i + 1].content.strip()}")
+                i += 2
+            else:
+                i += 1
+
+            combined_text = "\n".join(lines)
+            chunks.append({
+                "turn_index": turn_idx,
+                "text": combined_text
+            })
+            turn_idx += 1
+
+        return chunks
+
+    @staticmethod
+    async def index_chat_session(session: ChatSession, char_name: str):
+        """
+        為角色聊天 Session 建立/更新 RAG 歷史對話向量索引
+        """
+        if not session.id:
+            return
+
+        chunks_data = RAGService.build_chat_turn_chunks(session, char_name)
+        if not chunks_data:
+            with sqlite3.connect(RAG_DB_FILE) as conn:
+                conn.cursor().execute("DELETE FROM chat_chunks WHERE session_id = ?", (session.id,))
+                conn.commit()
+            return
+
+        settings = get_settings()
+        chunk_texts = [f"[第 {c['turn_index']} 輪對話]\n{c['text']}" for c in chunks_data]
+        vectors = await RAGService.get_embeddings(chunk_texts, settings)
+        active_tag = RAGService.get_embedding_provider_tag(settings)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with sqlite3.connect(RAG_DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM chat_chunks WHERE session_id = ?", (session.id,))
+            for c, vec in zip(chunks_data, vectors):
+                chk_id = f"chatchk-{session.id}-{c['turn_index']}"
+                vec_blob = vec.tobytes() if vec is not None else None
+                cursor.execute("""
+                INSERT INTO chat_chunks (
+                    id, session_id, character_id, turn_index, text, vector, vector_model, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    chk_id, session.id, session.character_id, c["turn_index"],
+                    c["text"], vec_blob, active_tag, now_str
+                ))
+            conn.commit()
+
+    @staticmethod
+    def delete_chat_session_index(session_id: str):
+        with sqlite3.connect(RAG_DB_FILE) as conn:
+            conn.cursor().execute("DELETE FROM chat_chunks WHERE session_id = ?", (session_id,))
+            conn.commit()
+
+    @staticmethod
+    async def query_chat_history_rag(
+        session: ChatSession,
+        char_name: str,
+        query_text: str,
+        recent_window_messages: int = 8,
+        top_k: int = 3
+    ) -> List[RecalledChatTurn]:
+        """
+        深海回撈角色聊天早期歷史對話：
+        排除最近已在短期上下文視窗內的訊息 (recent_window_messages)，針對更早期的對話進行語意向量 + 中文字詞/Bigram 混合檢索。
+        """
+        total_msgs = len(session.messages)
+        if total_msgs <= recent_window_messages or not query_text.strip():
+            return []
+
+        cutoff_msg_idx = total_msgs - recent_window_messages
+        early_chunks = RAGService.build_chat_turn_chunks(session, char_name, max_msg_idx=cutoff_msg_idx)
+        if not early_chunks:
+            return []
+
+        max_early_turn = early_chunks[-1]["turn_index"]
+
+        # 讀取已存在於 SQLite 的向量快取
+        stored_vectors: Dict[int, Tuple[Optional[bytes], Optional[str]]] = {}
+        if session.id:
+            with sqlite3.connect(RAG_DB_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                SELECT turn_index, vector, vector_model
+                FROM chat_chunks
+                WHERE session_id = ? AND turn_index <= ?
+                """, (session.id, max_early_turn))
+                for t_idx, v_blob, v_model in cursor.fetchall():
+                    stored_vectors[t_idx] = (v_blob, v_model)
+
+        settings = get_settings()
+        current_tag = RAGService.get_embedding_provider_tag(settings)
+        query_vec = None
+        if any(v[0] is not None for v in stored_vectors.values()):
+            q_vecs = await RAGService.get_embeddings([query_text], settings)
+            query_vec = q_vecs[0] if q_vecs and q_vecs[0] is not None else None
+
+        # 提取查詢詞元與中文雙字元 Bigrams (提升中文口語對話檢索準確率)
+        clean_q = query_text.strip().lower()
+        query_words = set([w.strip() for w in clean_q.replace("\n", " ").split() if len(w.strip()) >= 2])
+        cjk_chars = [ch for ch in clean_q if '\u4e00' <= ch <= '\u9fff']
+        stop_bigrams = {"我們", "你們", "他們", "什麼", "怎麼", "可以", "這個", "那個", "一個", "因為", "所以", "如果", "但是", "已經", "現在", "自己", "知道", "覺得"}
+        query_bigrams = set()
+        for idx in range(len(cjk_chars) - 1):
+            bg = cjk_chars[idx] + cjk_chars[idx + 1]
+            if bg not in stop_bigrams:
+                query_bigrams.add(bg)
+
+        scored_candidates = []
+        for c in early_chunks:
+            t_idx = c["turn_index"]
+            text = c["text"]
+            lower_text = text.lower()
+            score = 0.0
+            reasons = []
+
+            # 1. 向量語意相似度
+            v_info = stored_vectors.get(t_idx)
+            if query_vec is not None and v_info and v_info[0] is not None:
+                v_blob, v_model = v_info
+                if not v_model or v_model == current_tag:
+                    s_vec = np.frombuffer(v_blob, dtype=np.float32)
+                    if s_vec.shape == query_vec.shape:
+                        nq = np.linalg.norm(query_vec)
+                        ns = np.linalg.norm(s_vec)
+                        if nq > 1e-6 and ns > 1e-6:
+                            sim = float(np.dot(query_vec, s_vec) / (nq * ns))
+                            score += sim * 0.75
+                            if sim > 0.42:
+                                reasons.append(f"語意共鳴 {int(sim * 100)}%")
+
+            # 2. 詞彙與中文雙字元 Bigram 命中加成
+            hit_bigrams = [bg for bg in query_bigrams if bg in lower_text]
+            hit_words = [w for w in query_words if w in lower_text]
+            if hit_bigrams or hit_words:
+                kw_bonus = min(len(hit_bigrams) * 0.12 + len(hit_words) * 0.15, 0.55)
+                score += kw_bonus
+                sample_hits = (hit_words + hit_bigrams)[:3]
+                if sample_hits:
+                    reasons.append(f"關鍵記憶命中: {', '.join(sample_hits)}")
+
+            if score >= 0.15:
+                scored_candidates.append(
+                    RecalledChatTurn(
+                        id=f"chatchk-{session.id or 'temp'}-{t_idx}",
+                        turn_index=t_idx,
+                        text=text,
+                        score=round(score, 3),
+                        reason=" · ".join(reasons) if reasons else "歷史情境關聯"
+                    )
+                )
+
+        scored_candidates.sort(key=lambda x: x.score, reverse=True)
+        return scored_candidates[:top_k]
+
+    @staticmethod
+    def build_chat_rag_prompt(recalled_turns: List[RecalledChatTurn]) -> str:
+        if not recalled_turns:
+            return ""
+        entries = []
+        for t in recalled_turns:
+            snippet = t.text.strip()
+            if len(snippet) > 320:
+                snippet = snippet[:320] + "..."
+            entries.append(
+                f"🌊 [早期第 {t.turn_index} 輪對話記憶] ({t.reason}):\n{snippet}"
+            )
+        return (
+            "【★★★★★ 長時記憶：RAG 深海歷史對話回撈 (Recalled Past Conversations) ★★★★★】\n"
+            "（系統從雙方更早期的對話紀錄中檢索出以下與當前話題高度相關的往事片段，請自然記得並呼應這些過去聊過的細節）：\n\n"
+            + "\n\n".join(entries)
+            + "\n\n"
+        )

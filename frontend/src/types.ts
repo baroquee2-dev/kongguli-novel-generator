@@ -114,8 +114,8 @@ export interface RecalledScene {
   characters: string[];
 }
 
-// ==================== 獨立遊戲版型別 ====================
-export type SystemMode = 'novel' | 'game' | 'game_frontstage';
+// ==================== 獨立遊戲版與角色聊天版型別 ====================
+export type SystemMode = 'novel' | 'game' | 'game_frontstage' | 'character' | 'character_frontstage';
 
 export interface GameRulesConfig {
   rules_text: string;                  // 第一欄：自行輸入文字定義遊戲規則
@@ -167,3 +167,108 @@ export interface GameTurnResponse {
   }[];
 }
 
+// ==================== 角色聊天版本 (SillyTavern V2/V3 相容角色卡與對話型別) ====================
+export interface CharacterCard {
+  id: string;
+  name: string;
+  description: string;
+  personality: string;
+  scenario: string;
+  first_mes: string;
+  alternate_greetings: string[];
+  mes_example: string;
+  creator_notes: string;
+  system_prompt: string;
+  post_history_instructions: string;
+  tags: string[];
+  creator: string;
+  character_version: string;
+  avatar_url?: string;
+  lore_items: LoreItem[];
+  user_persona_name?: string;
+  user_persona_desc?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CharacterCardListItem {
+  id: string;
+  name: string;
+  description: string;
+  personality: string;
+  scenario: string;
+  first_mes: string;
+  creator_notes: string;
+  tags: string[];
+  creator: string;
+  character_version: string;
+  avatar_url?: string;
+  lore_items_count: number;
+  alternate_greetings_count: number;
+  chat_sessions_count: number;
+  total_messages_count: number;
+  updated_at?: string;
+}
+
+export interface RecalledChatTurn {
+  id: string;
+  turn_index: number;
+  text: string;
+  score: number;
+  reason: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  swipes: string[];
+  swipe_id: number;
+  timestamp?: string;
+  triggered_lore?: {
+    id: string;
+    title: string;
+    category: string;
+    trigger_reason?: string;
+    keywords?: string[];
+    content?: string;
+  }[];
+  recalled_rag?: RecalledChatTurn[];
+}
+
+export interface ChatSession {
+  id: string;
+  character_id: string;
+  title: string;
+  user_name: string;
+  user_persona: string;
+  memory_summary: string;
+  messages: ChatMessage[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChatSessionListItem {
+  id: string;
+  character_id: string;
+  title: string;
+  user_name: string;
+  messages_count: number;
+  last_message_preview: string;
+  has_memory_summary: boolean;
+  updated_at?: string;
+}
+
+export interface ChatReplyResponse {
+  session: ChatSession;
+  assistant_message: ChatMessage;
+  triggered_lore_items: {
+    id: string;
+    title: string;
+    category: string;
+    trigger_reason?: string;
+    keywords?: string[];
+    content?: string;
+  }[];
+  recalled_rag_items: RecalledChatTurn[];
+}

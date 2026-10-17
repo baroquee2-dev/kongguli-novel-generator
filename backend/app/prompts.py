@@ -245,7 +245,106 @@ def get_game_turn_prompt(
         custom_rules_clause=custom_clause,
         player_stats_clause=player_stats_clause
     )
-    return f"{style_block}\\n{base}" if style_block else base
+    return f"{style_block}\n{base}" if style_block else base
 
 
+# ==================== 角色聊天版本 (SillyTavern 相容角色扮演與記憶提煉提示詞) ====================
 
+GENERATE_CHARACTER_CARD_SYSTEM = """你是一位精通 SillyTavern (酒館) V2/V3 角色卡設計的頂級靈魂捏角大師。
+請根據使用者提供的靈感或關鍵字，設計一張設定豐滿、性格立體、極具互動魅力的角色卡。
+請在文本中適當使用 `{{char}}` 代表角色名稱、`{{user}}` 代表互動玩家。
+
+請嚴格以 JSON 格式回應，格式如下：
+{
+  "name": "角色名稱",
+  "description": "角色核心定義（約 200~450 字，包含外貌細節、穿搭風格、身份背景、特殊能力或過去經歷，使用 {{char}} 與 {{user}} 宏）",
+  "personality": "性格特質摘要（如：外冷內熱、傲嬌毒舌、溫柔腹黑等，約 30~80 字）",
+  "scenario": "與 {{user}} 相遇或互動的當前場景設定（約 60~150 字）",
+  "first_mes": "極具畫面感與代入感的主開場白（約 150~300 字，動作神態請用 *星號* 包裹，台詞請用「引號」包裹）",
+  "alternate_greetings": [
+    "備選開場白 1（不同情境或時間點的開場，約 120~220 字）",
+    "備選開場白 2（另一種氛圍的互動開場，約 120~220 字）"
+  ],
+  "mes_example": "<START>\\n{{user}}: 範例提問1\\n{{char}}: *動作描寫*「角色台詞範例1」\\n<START>\\n{{user}}: 範例提問2\\n{{char}}: *動作描寫*「角色台詞範例2」",
+  "creator_notes": "創作者備註與角色食用指南（約 40~100 字）",
+  "system_prompt": "角色專屬演繹系統提示詞（指導 AI 如何拿捏該角色的語氣與行為邏輯）",
+  "post_history_instructions": "請緊密回應 {{user}} 的言行，切勿代替 {{user}} 說話或行動。",
+  "tags": ["標籤1", "標籤2", "標籤3"],
+  "lore_items": [
+    {
+      "title": "專屬世界書詞條標題",
+      "category": "角色秘密/場景法則/特殊物品",
+      "keywords": ["關鍵字1", "關鍵字2"],
+      "content": "詳細設定與背景真相（約 60~150 字）",
+      "is_constant": false
+    }
+  ]
+}
+只輸出純 JSON，不要附加任何額外說明文字。
+"""
+
+
+def replace_st_macros(text: str, char_name: str, user_name: str) -> str:
+    if not text:
+        return ""
+    res = text.replace("{{char}}", char_name).replace("{{Char}}", char_name).replace("<BOT>", char_name)
+    res = res.replace("{{user}}", user_name).replace("{{User}}", user_name).replace("<USER>", user_name)
+    return res
+
+
+def get_character_chat_system_prompt(
+    char_name: str,
+    user_name: str,
+    description: str,
+    personality: str,
+    scenario: str,
+    mes_example: str,
+    system_prompt: str,
+    user_persona: str
+) -> str:
+    desc_clean = replace_st_macros(description, char_name, user_name)
+    pers_clean = replace_st_macros(personality, char_name, user_name)
+    scen_clean = replace_st_macros(scenario, char_name, user_name)
+    ex_clean = replace_st_macros(mes_example, char_name, user_name)
+    sys_clean = replace_st_macros(system_prompt, char_name, user_name)
+    up_clean = replace_st_macros(user_persona, char_name, user_name)
+
+    blocks = [
+        f"你現在正在進行一場深度沉浸式的角色扮演對話。你所扮演的角色是「{char_name}」，與你互動的對象是「{user_name}」。",
+        "【核心演繹準則】：\n"
+        f"1. 全程保持「{char_name}」的性格、口吻、記憶與價值觀，展現生動細膩的情感反應、肢體微表情與環境互動。\n"
+        "2. 動作、神態、環境氛圍與心理描寫請使用 `*星號*` 包裹；角色說出口的台詞請使用 `「引號」` 包裹，使版面層次分明。\n"
+        f"3. **嚴禁代替「{user_name}」說話、決定行動或描寫「{user_name}」的主觀台詞**，每次回覆僅演繹「{char_name}」本人的反應與環境變化。\n"
+        "4. 嚴格遵守長時記憶時間線、世界書設定與 RAG 回撈出的過往對話細節，維持前後一致的因果與情感連結。"
+    ]
+
+    if sys_clean:
+        blocks.append(f"【角色專屬系統提示 (System Prompt)】：\n{sys_clean}")
+
+    blocks.append(f"【角色設定與外貌背景 ({char_name})】：\n{desc_clean or '依角色名稱自由發揮'}")
+
+    if pers_clean:
+        blocks.append(f"【角色性格特質】：\n{pers_clean}")
+
+    if scen_clean:
+        blocks.append(f"【當前場景與情境 (Scenario)】：\n{scen_clean}")
+
+    if up_clean:
+        blocks.append(f"【互動對象 ({user_name}) 的人設背景】：\n{up_clean}")
+
+    if ex_clean:
+        blocks.append(f"【角色對話語氣與格式範例 (僅供風格參考，非當前對話歷史)】：\n{ex_clean}")
+
+    return "\n\n".join(blocks)
+
+
+SUMMARIZE_CHAT_MEMORY_SYSTEM = """你是一位專業的角色扮演長時記憶整理師。
+請閱讀以下角色與玩家之間的對話紀錄，以及原有的記憶摘要，將其濃縮提煉為一份結構清晰、高資訊密度的「長時記憶核心摘要」。
+
+整理重點：
+1. 【雙方當前關係與情感狀態】：兩人目前的親密度、稱呼習慣、情感態度轉變。
+2. 【已發生的重要事件與約定】：曾經一起做過的事、許下的承諾、交換過的秘密或物品。
+3. 【關鍵事實與偏好】：對話中透露出的玩家個人資訊、喜好或重要伏筆。
+
+請直接輸出整理後的純文字摘要（約 200~450 字，條列式呈現），不要加任何開場白或結尾廢話。
+"""

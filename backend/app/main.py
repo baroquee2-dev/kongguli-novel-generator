@@ -2,12 +2,13 @@ import os
 import uuid
 import json
 import urllib.parse
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse, JSONResponse
 
 from app.models import (
     AISettings, Novel, GameProject, Location, Character, Chapter, LoreItem,
@@ -15,12 +16,18 @@ from app.models import (
     GenerateCharactersRequest, GenerateChapterRequest,
     ContinueWritingRequest, GenerateChapterSummaryRequest,
     AnalyzeLoreItemsRequest, QueryRagRequest, RecalledScene,
-    GameTurnRequest, GameTurnResponse, GameTurnHistoryItem
+    GameTurnRequest, GameTurnResponse, GameTurnHistoryItem,
+    CharacterCard, ChatSession, ChatMessage, RecalledChatTurn,
+    GenerateCharacterCardRequest, ChatReplyRequest, SummarizeChatMemoryRequest
 )
 from app.config import get_settings, save_settings, UPLOADS_DIR
 from app.db import (
     list_novels, get_novel, save_novel, delete_novel, create_sample_novel,
-    list_games, get_game, save_game, delete_game, create_sample_game
+    list_games, get_game, save_game, delete_game, create_sample_game,
+    list_character_cards, get_character_card, save_character_card, delete_character_card,
+    create_sample_character_card, extract_chara_from_png_bytes, parse_sillytavern_card_dict,
+    export_sillytavern_v2_dict, list_chat_sessions, get_chat_session, save_chat_session,
+    delete_chat_session, create_new_chat_session
 )
 from app.ai_service import AIService, clean_json_string, extract_json_data
 from app.rag_service import RAGService
@@ -1315,6 +1322,524 @@ async def api_reindex_novel_rag(novel_id: str, background_tasks: BackgroundTasks
     return {
         "status": "ok",
         "message": f"已在背景排程重構《{novel.title}》的全域 RAG 向量索引庫"
+    }
+
+
+# ==================== 9. 角色聊天版本 API (SillyTavern 相容角色卡 & 對話長時記憶/RAG) ====================
+
+@app.get("/api/character-cards")
+async def api_list_character_cards():
+    cards = list_character_cards()
+    if not cards:
+        sample = create_sample_character_card()
+        cards = list_character_cards()
+    return cards
+
+
+@app.post("/api/character-cards/init-sample", response_model=CharacterCard)
+async def api_init_sample_character_card():
+    return create_sample_character_card()
+
+
+@app.get("/api/character-cards/{card_id}", response_model=CharacterCard)
+async def api_get_character_card(card_id: str):
+    card = get_character_card(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="找不到指定角色卡")
+    return card
+
+
+@app.post("/api/character-cards", response_model=CharacterCard)
+async def api_create_character_card(card: CharacterCard):
+    card.id = f"charcard-{uuid.uuid4().hex[:8]}"
+    if not card.first_mes:
+        card.first_mes = f"*{{{{char}}}}微笑著看向{{{{user}}}}。*\n「你好，我是{card.name}，很高興認識你。」"
+    return save_character_card(card)
+
+
+@app.put("/api/character-cards/{card_id}", response_model=CharacterCard)
+async def api_update_character_card(card_id: str, card: CharacterCard):
+    card.id = card_id
+    return save_character_card(card)
+
+
+@app.delete("/api/character-cards/{card_id}")
+async def api_delete_character_card(card_id: str):
+    ok = delete_character_card(card_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="刪除失敗，找不到指定角色卡")
+    return {"status": "deleted"}
+
+
+@app.post("/api/character-cards/import", response_model=CharacterCard)
+async def api_import_character_card(file: UploadFile = File(...)):
+    """
+    匯入 SillyTavern 角色卡：
+    支援 .json (V1 / V2 / V3) 以及 .png (內嵌 tEXt/zTXt/iTXt chara/ccv3 Base64 JSON 的角色卡圖片，同時將圖片設為角色立繪)
+    """
+    filename = (file.filename or "").lower()
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="上傳的檔案內容為空")
+
+    if filename.endswith(".png") or raw_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        # 1. 先將 PNG 儲存至 uploads 作為角色立繪圖片
+        img_name = f"stcard-{uuid.uuid4().hex[:10]}.png"
+        img_path = UPLOADS_DIR / img_name
+        with open(img_path, "wb") as f:
+            f.write(raw_bytes)
+        avatar_url = f"/uploads/{img_name}"
+
+        # 2. 解析 PNG chunk 中的 SillyTavern metadata
+        st_dict = extract_chara_from_png_bytes(raw_bytes)
+        if st_dict:
+            return parse_sillytavern_card_dict(st_dict, avatar_url=avatar_url)
+        else:
+            # 若是一般無內嵌 metadata 的 PNG 圖片，建立一張以該圖片為立繪的角色卡
+            base_title = Path(file.filename or "新角色").stem
+            new_card = CharacterCard(
+                id=f"charcard-{uuid.uuid4().hex[:8]}",
+                name=base_title,
+                avatar_url=avatar_url,
+                description=f"{base_title} 的角色設定。",
+                first_mes=f"*{{{{char}}}}看向{{{{user}}}}。*\n「你好，我是{base_title}。」",
+                creator_notes="由 PNG 圖片建立（未偵測到內嵌 SillyTavern metadata，已自動設為角色立繪）"
+            )
+            return save_character_card(new_card)
+
+    # JSON 格式角色卡解析
+    try:
+        text_content = raw_bytes.decode("utf-8-sig")
+        json_data = json.loads(text_content)
+        if not isinstance(json_data, dict):
+            raise ValueError("JSON 根節點必須為物件")
+        return parse_sillytavern_card_dict(json_data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"無法解析 SillyTavern 角色卡檔案：{str(e)}")
+
+
+@app.get("/api/character-cards/{card_id}/export-json")
+async def api_export_character_card_json(card_id: str):
+    card = get_character_card(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="找不到指定角色卡")
+    st_data = export_sillytavern_v2_dict(card)
+    safe_name = urllib.parse.quote(f"{card.name}_SillyTavern_V2.json")
+    content_bytes = json.dumps(st_data, ensure_ascii=False, indent=2).encode("utf-8")
+    return StreamingResponse(
+        iter([content_bytes]),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}"}
+    )
+
+
+@app.post("/api/ai/generate-character-card")
+async def api_ai_generate_character_card(req: GenerateCharacterCardRequest):
+    user_prompt = f"""【角色名稱提示】：{req.name_hint or "請自行命名富有魅力的名字"}
+【角色核心靈感與設定構想】：
+{req.rough_idea}
+
+請根據上述構想，生成一張完整的 SillyTavern V2 相容角色卡設定（含開場白、備選開場白、對話範例與角色專屬世界書詞條）：
+"""
+    try:
+        raw_resp = await AIService.call_llm(
+            system_prompt=prompts.GENERATE_CHARACTER_CARD_SYSTEM,
+            user_prompt=user_prompt,
+            temperature=0.8,
+            max_tokens=3000
+        )
+        data = extract_json_data(raw_resp)
+        if not isinstance(data, dict):
+            raise ValueError("AI 未回傳有效的 JSON 角色卡結構")
+
+        lore_list = []
+        if req.include_lore and isinstance(data.get("lore_items"), list):
+            for item in data["lore_items"]:
+                if isinstance(item, dict) and item.get("title") and item.get("content"):
+                    lore_list.append({
+                        "id": f"lore-{uuid.uuid4().hex[:8]}",
+                        "title": str(item.get("title", "設定詞條")),
+                        "category": str(item.get("category", "角色設定")),
+                        "keywords": item.get("keywords") if isinstance(item.get("keywords"), list) else [],
+                        "content": str(item.get("content", "")),
+                        "is_constant": bool(item.get("is_constant", False)),
+                        "is_enabled": True
+                    })
+
+        data["lore_items"] = lore_list
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI 生成角色卡失敗: {str(e)}")
+
+
+# ==================== 9.5 角色聊天對話紀錄與三層長時記憶 + RAG 推演 API ====================
+
+@app.get("/api/character-chats")
+async def api_list_chat_sessions(character_id: Optional[str] = None):
+    return list_chat_sessions(character_id=character_id)
+
+
+@app.post("/api/character-chats", response_model=ChatSession)
+async def api_create_chat_session(payload: dict):
+    card_id = payload.get("character_id", "")
+    user_name = payload.get("user_name", "你")
+    greeting_index = int(payload.get("greeting_index", 0) or 0)
+    card = get_character_card(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="找不到指定角色卡")
+    return create_new_chat_session(card, user_name=user_name, greeting_index=greeting_index)
+
+
+@app.get("/api/character-chats/{session_id}", response_model=ChatSession)
+async def api_get_chat_session(session_id: str):
+    session = get_chat_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="找不到指定對話紀錄")
+    return session
+
+
+@app.put("/api/character-chats/{session_id}", response_model=ChatSession)
+async def api_update_chat_session(session_id: str, session: ChatSession, background_tasks: BackgroundTasks):
+    session.id = session_id
+    saved = save_chat_session(session)
+    card = get_character_card(session.character_id)
+    if card:
+        background_tasks.add_task(RAGService.index_chat_session, saved, card.name)
+    return saved
+
+
+@app.delete("/api/character-chats/{session_id}")
+async def api_delete_chat_session(session_id: str):
+    ok = delete_chat_session(session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="找不到指定對話紀錄")
+    RAGService.delete_chat_session_index(session_id)
+    return {"status": "deleted"}
+
+
+def build_chat_timeline_and_recent_context(
+    session: ChatSession,
+    char_name: str,
+    recent_limit: int = 8
+) -> tuple[str, str]:
+    """
+    角色聊天第一層長時記憶：
+    結合核心記憶摘要 (memory_summary) + 早期對話壓縮時間線 (Early Chat Timeline) + 最近 N 則完整對話脈絡 (Immediate Context)
+    """
+    uname = session.user_name or "你"
+    blocks = []
+
+    if session.memory_summary and session.memory_summary.strip():
+        summary_clean = prompts.replace_st_macros(session.memory_summary.strip(), char_name, uname)
+        blocks.append(
+            "【★★★★★ 長時記憶核心摘要 (双方關係與重要往事總結) ★★★★★】：\n"
+            f"{summary_clean}\n"
+        )
+
+    msgs = session.messages or []
+    if len(msgs) > recent_limit:
+        early_msgs = msgs[:-recent_limit]
+        timeline_lines = []
+        turn_no = 1
+        idx = 0
+        while idx < len(early_msgs):
+            m = early_msgs[idx]
+            c_txt = prompts.replace_st_macros(m.content.strip(), char_name, uname).replace("\n", " ")
+            c_short = c_txt[:90] + "..." if len(c_txt) > 90 else c_txt
+            if m.role == "user" and (idx + 1) < len(early_msgs) and early_msgs[idx + 1].role == "assistant":
+                a_txt = prompts.replace_st_macros(early_msgs[idx + 1].content.strip(), char_name, uname).replace("\n", " ")
+                a_short = a_txt[:100] + "..." if len(a_txt) > 100 else a_txt
+                timeline_lines.append(f"* [第 {turn_no} 輪] {uname}: 「{c_short}」 -> {char_name}: 「{a_short}」")
+                idx += 2
+            else:
+                speaker = uname if m.role == "user" else char_name
+                timeline_lines.append(f"* [早期紀錄] {speaker}: 「{c_short}」")
+                idx += 1
+            turn_no += 1
+
+        # 取最近 25 條早期濃縮時間線避免超長，更久遠的細節由 RAG 深海回撈負責
+        if len(timeline_lines) > 25:
+            timeline_lines = timeline_lines[-25:]
+
+        blocks.append(
+            "【★★★★★ 長時記憶：早期對話大事記時間線 (Early Conversation Timeline) ★★★★★】：\n"
+            + "\n".join(timeline_lines)
+            + "\n"
+        )
+
+    recent_msgs = msgs[-recent_limit:] if len(msgs) > recent_limit else msgs
+    recent_lines = []
+    for m in recent_msgs:
+        speaker = uname if m.role == "user" else char_name
+        txt = prompts.replace_st_macros(m.content.strip(), char_name, uname)
+        recent_lines.append(f"{speaker}: {txt}")
+
+    timeline_block = "\n".join(blocks) + "\n" if blocks else ""
+    recent_block = "\n\n".join(recent_lines)
+    return (timeline_block, recent_block)
+
+
+def build_chat_lorebook_context(
+    card: CharacterCard,
+    char_name: str,
+    user_name: str,
+    scan_text: str
+) -> tuple[str, list[dict]]:
+    """
+    角色聊天第二層長時記憶：角色專屬世界書 (Character Book / Lorebook) 智慧關鍵字掃描與常駐激活
+    """
+    if not card.lore_items:
+        return ("", [])
+
+    corpus = scan_text.lower()
+    triggered = []
+
+    for item in card.lore_items:
+        if not item.is_enabled:
+            continue
+
+        reason = None
+        if item.is_constant:
+            reason = "常駐生效"
+        elif item.title and item.title.lower() in corpus:
+            reason = f"命中標題「{item.title}」"
+        else:
+            for kw in (item.keywords or []):
+                kw_clean = kw.strip().lower()
+                if kw_clean and kw_clean in corpus:
+                    reason = f"命中關鍵字「{kw.strip()}」"
+                    break
+
+        if reason:
+            clean_content = prompts.replace_st_macros(item.content.strip(), char_name, user_name)
+            triggered.append({
+                "id": item.id,
+                "title": item.title,
+                "category": item.category,
+                "trigger_reason": reason,
+                "keywords": item.keywords or [],
+                "content": clean_content
+            })
+
+    if not triggered:
+        return ("", [])
+
+    lines = []
+    for t in triggered:
+        lines.append(f"📌【{t['title']}】({t['category']} - {t['trigger_reason']}):\n   {t['content']}")
+
+    lore_prompt = (
+        "【★★★★★ 長時記憶：喚醒之角色專屬世界書 (Character Book) ★★★★★】\n"
+        + "\n\n".join(lines)
+        + "\n\n"
+    )
+    return (lore_prompt, triggered)
+
+
+@app.post("/api/ai/character-chat/reply")
+async def api_character_chat_reply(req: ChatReplyRequest, background_tasks: BackgroundTasks):
+    card = get_character_card(req.character_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="找不到指定角色卡")
+    session = get_chat_session(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="找不到指定對話紀錄")
+
+    char_name = card.name
+    user_name = (session.user_name or card.user_persona_name or "你").strip()
+
+    # 若為一般發送訊息，先把玩家的訊息加入 session.messages
+    if not req.is_regenerate:
+        user_msg_text = (req.user_message or "").strip()
+        if not user_msg_text:
+            raise HTTPException(status_code=400, detail="訊息內容不可為空")
+        new_user_msg = ChatMessage(
+            id=f"msg-{uuid.uuid4().hex[:8]}",
+            role="user",
+            content=user_msg_text,
+            swipes=[user_msg_text],
+            swipe_id=0,
+            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        session.messages.append(new_user_msg)
+
+    # 準備用於檢索與推演的上下文（若為重新生成且最後一則是 assistant，先排除最後一則 assistant 以便重新回答）
+    context_messages = list(session.messages)
+    target_regen_msg: Optional[ChatMessage] = None
+    if req.is_regenerate and context_messages and context_messages[-1].role == "assistant":
+        target_regen_msg = context_messages.pop()
+
+    # 找出最後一則玩家的發言作為查詢核心
+    latest_user_text = ""
+    for m in reversed(context_messages):
+        if m.role == "user":
+            latest_user_text = m.content
+            break
+
+    temp_session_for_ctx = ChatSession(
+        id=session.id,
+        character_id=session.character_id,
+        title=session.title,
+        user_name=user_name,
+        user_persona=session.user_persona,
+        memory_summary=session.memory_summary,
+        messages=context_messages
+    )
+
+    # 1. 第一層長時記憶：核心摘要 + 早期大事記時間線 + 直前對話脈絡
+    timeline_block, recent_block = build_chat_timeline_and_recent_context(
+        temp_session_for_ctx, char_name=char_name, recent_limit=8
+    )
+
+    # 2. 第二層長時記憶：角色世界書 (Character Book) 智慧掃描
+    scan_text = f"{latest_user_text} {recent_block[-600:] if recent_block else ''}"
+    lore_block, triggered_lore = build_chat_lorebook_context(
+        card=card, char_name=char_name, user_name=user_name, scan_text=scan_text
+    )
+
+    # 3. 第三層長時記憶：RAG 深海歷史對話語意回撈
+    recalled_turns = await RAGService.query_chat_history_rag(
+        session=temp_session_for_ctx,
+        char_name=char_name,
+        query_text=f"{latest_user_text} {req.custom_instruction or ''}".strip(),
+        recent_window_messages=8,
+        top_k=3
+    )
+    rag_block = RAGService.build_chat_rag_prompt(recalled_turns)
+    recalled_rag_dicts = [r.model_dump() for r in recalled_turns]
+
+    # 4. 組裝 System Prompt 與 User Prompt
+    sys_prompt = prompts.get_character_chat_system_prompt(
+        char_name=char_name,
+        user_name=user_name,
+        description=card.description,
+        personality=card.personality,
+        scenario=card.scenario,
+        mes_example=card.mes_example,
+        system_prompt=card.system_prompt,
+        user_persona=session.user_persona or card.user_persona_desc or ""
+    )
+
+    post_inst = prompts.replace_st_macros(card.post_history_instructions or "", char_name, user_name)
+    post_block = f"\n【角色深度指令 (Post-History Instructions)】：\n{post_inst}\n" if post_inst else ""
+    custom_block = f"\n【單次導演特別指示】：{req.custom_instruction.strip()}\n" if (req.custom_instruction and req.custom_instruction.strip()) else ""
+
+    user_prompt = f"""{lore_block}{rag_block}{timeline_block}【直前最新對話脈絡 (Immediate Context)】：
+{recent_block or "（對話剛開始）"}
+{post_block}{custom_block}
+請以「{char_name}」的身份，自然且生動地接續回覆「{user_name}」（直接輸出 {char_name} 的動作描寫與台詞，不要加上 `{char_name}:` 前綴）：
+"""
+
+    try:
+        raw_reply = await AIService.call_llm(
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1500
+        )
+        clean_reply = (raw_reply or "").strip()
+        if not clean_reply:
+            raise HTTPException(status_code=502, detail="AI 模型回傳內容為空白，請重試或檢查 API 設定")
+
+        # 去除可能多餘的角色名稱前綴
+        for prefix in [f"{char_name}：", f"{char_name}:"]:
+            if clean_reply.startswith(prefix):
+                clean_reply = clean_reply[len(prefix):].strip()
+
+        clean_reply = prompts.replace_st_macros(clean_reply, char_name, user_name)
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if target_regen_msg is not None:
+            # 重新生成 (Swipe)：加入 swipes 陣列並切換至最新生成的版本
+            swipes = list(target_regen_msg.swipes or ([target_regen_msg.content] if target_regen_msg.content else []))
+            swipes.append(clean_reply)
+            target_regen_msg.content = clean_reply
+            target_regen_msg.swipes = swipes
+            target_regen_msg.swipe_id = len(swipes) - 1
+            target_regen_msg.timestamp = now_str
+            target_regen_msg.triggered_lore = triggered_lore
+            target_regen_msg.recalled_rag = recalled_rag_dicts
+            assistant_msg = target_regen_msg
+        else:
+            assistant_msg = ChatMessage(
+                id=f"msg-{uuid.uuid4().hex[:8]}",
+                role="assistant",
+                content=clean_reply,
+                swipes=[clean_reply],
+                swipe_id=0,
+                timestamp=now_str,
+                triggered_lore=triggered_lore,
+                recalled_rag=recalled_rag_dicts
+            )
+            session.messages.append(assistant_msg)
+
+        saved_session = save_chat_session(session)
+        # 在背景自動更新該對話的 RAG 向量索引庫
+        background_tasks.add_task(RAGService.index_chat_session, saved_session, char_name)
+
+        return {
+            "session": saved_session,
+            "assistant_message": assistant_msg,
+            "triggered_lore_items": triggered_lore,
+            "recalled_rag_items": recalled_rag_dicts
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"角色對話生成失敗: {str(e)}")
+
+
+@app.post("/api/ai/character-chat/summarize-memory", response_model=ChatSession)
+async def api_summarize_chat_memory(req: SummarizeChatMemoryRequest):
+    card = get_character_card(req.character_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="找不到指定角色卡")
+    session = get_chat_session(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="找不到指定對話紀錄")
+
+    char_name = card.name
+    user_name = session.user_name or "你"
+
+    convo_lines = []
+    for m in session.messages[-30:]:
+        speaker = user_name if m.role == "user" else char_name
+        txt = prompts.replace_st_macros(m.content.strip(), char_name, user_name)
+        convo_lines.append(f"{speaker}: {txt}")
+
+    user_prompt = f"""【角色名稱】：{char_name}
+【互動玩家名稱】：{user_name}
+【既有長時記憶摘要】：
+{session.memory_summary or "（尚無既有摘要）"}
+
+【近期對話紀錄】：
+{chr(10).join(convo_lines)}
+
+請根據上述資訊，整合並更新這場對話的「長時記憶核心摘要」：
+"""
+    try:
+        summary_text = await AIService.call_llm(
+            system_prompt=prompts.SUMMARIZE_CHAT_MEMORY_SYSTEM,
+            user_prompt=user_prompt,
+            temperature=0.5,
+            max_tokens=1000
+        )
+        session.memory_summary = (summary_text or "").strip()
+        return save_chat_session(session)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"提煉長時記憶摘要失敗: {str(e)}")
+
+
+@app.post("/api/ai/character-chat/reindex-rag/{session_id}")
+async def api_reindex_chat_rag(session_id: str, background_tasks: BackgroundTasks):
+    session = get_chat_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="找不到指定對話紀錄")
+    card = get_character_card(session.character_id)
+    char_name = card.name if card else "角色"
+    background_tasks.add_task(RAGService.index_chat_session, session, char_name)
+    return {
+        "status": "ok",
+        "message": f"已在背景排程重構「{session.title}」的對話 RAG 語意索引"
     }
 
 

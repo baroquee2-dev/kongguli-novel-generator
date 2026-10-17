@@ -223,4 +223,75 @@ class GameTurnResponse(BaseModel):
     triggered_lore_items: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="本回合觸發喚醒的世界書長時記憶條目")
 
 
+# ==================== 角色聊天版本 (SillyTavern V2/V3 相容角色卡與對話模型) ====================
+class CharacterCard(BaseModel):
+    id: Optional[str] = None
+    name: str = Field(..., description="角色名稱 (SillyTavern: name)")
+    description: str = Field(default="", description="角色核心定義、外貌、設定與背景 (SillyTavern: description)")
+    personality: str = Field(default="", description="性格特質摘要 (SillyTavern: personality)")
+    scenario: str = Field(default="", description="當前場景與情境設定 (SillyTavern: scenario)")
+    first_mes: str = Field(default="", description="主開場白 / 第一句話 (SillyTavern: first_mes)")
+    alternate_greetings: List[str] = Field(default_factory=list, description="備選開場白列表 (SillyTavern: alternate_greetings)")
+    mes_example: str = Field(default="", description="對話範例與語氣範本 (SillyTavern: mes_example)")
+    creator_notes: str = Field(default="", description="創作者備註 / 食用說明 (SillyTavern: creator_notes)")
+    system_prompt: str = Field(default="", description="角色專屬系統提示詞覆寫 (SillyTavern: system_prompt)")
+    post_history_instructions: str = Field(default="", description="歷史後置深度指令 / Author's Note (SillyTavern: post_history_instructions)")
+    tags: List[str] = Field(default_factory=list, description="角色分類標籤 (SillyTavern: tags)")
+    creator: str = Field(default="", description="創作者名稱 (SillyTavern: creator)")
+    character_version: str = Field(default="1.0", description="角色卡版本 (SillyTavern: character_version)")
+    avatar_url: Optional[str] = Field(default="", description="角色立繪/頭像圖片 URL")
+    lore_items: List[LoreItem] = Field(default_factory=list, description="角色專屬世界書 (相容 SillyTavern: character_book)")
+    user_persona_name: Optional[str] = Field(default="你", description="預設互動玩家名稱 ({{user}})")
+    user_persona_desc: Optional[str] = Field(default="", description="預設互動玩家人設描述")
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
+
+class RecalledChatTurn(BaseModel):
+    id: str
+    turn_index: int
+    text: str
+    score: float
+    reason: str
+
+
+class ChatMessage(BaseModel):
+    id: str
+    role: str = Field(..., description="user 或 assistant")
+    content: str = Field(default="", description="訊息文字內容")
+    swipes: List[str] = Field(default_factory=list, description="多重回覆分支列表")
+    swipe_id: int = Field(default=0, description="目前顯示的回覆索引")
+    timestamp: Optional[str] = None
+    triggered_lore: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="本則回覆觸發的世界書詞條")
+    recalled_rag: Optional[List[Dict[str, Any]]] = Field(default_factory=list, description="本則回覆從歷史回撈的 RAG 記憶片段")
+
+
+class ChatSession(BaseModel):
+    id: Optional[str] = None
+    character_id: str
+    title: str = Field(default="新對話紀錄", description="對話存檔標題")
+    user_name: str = Field(default="你", description="玩家在此對話中的稱呼 ({{user}})")
+    user_persona: str = Field(default="", description="玩家在此對話中的人設背景")
+    memory_summary: str = Field(default="", description="長時記憶核心摘要 (記載關係演變、重要約定與前情提要)")
+    messages: List[ChatMessage] = Field(default_factory=list, description="完整對話歷史紀錄")
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class GenerateCharacterCardRequest(BaseModel):
+    name_hint: Optional[str] = ""
+    rough_idea: str = Field(..., description="角色靈感、設定構想或風格描述")
+    include_lore: bool = Field(default=True, description="是否一併生成角色專屬世界書條目")
+
+
+class ChatReplyRequest(BaseModel):
+    session_id: str
+    character_id: str
+    user_message: Optional[str] = Field(default="", description="玩家發送的新訊息；若為重新生成則可留空")
+    is_regenerate: bool = Field(default=False, description="是否為針對最後一則 AI 訊息重新生成 (Swipe)")
+    custom_instruction: Optional[str] = Field(default="", description="單次額外導演指引 (如：讓她表現得害羞一點)")
+
+
+class SummarizeChatMemoryRequest(BaseModel):
+    session_id: str
+    character_id: str

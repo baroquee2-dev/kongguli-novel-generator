@@ -1,10 +1,13 @@
 import json
 import uuid
+import base64
+import struct
+import zlib
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
-from app.config import NOVELS_DIR, GAMES_DIR
-from app.models import Novel, GameProject, GameRulesConfig
+from typing import List, Optional, Dict, Any
+from app.config import NOVELS_DIR, GAMES_DIR, CHAR_CARDS_DIR, CHAR_CHATS_DIR
+from app.models import Novel, GameProject, GameRulesConfig, CharacterCard, ChatSession, ChatMessage, LoreItem
 
 def list_novels() -> List[dict]:
     novels = []
@@ -362,3 +365,477 @@ def create_sample_game() -> GameProject:
         ]
     )
     return save_game(game)
+
+
+# ==================== 3. 角色聊天版本：角色卡 (CharacterCard) 與 SillyTavern 相容引擎 ====================
+
+def list_character_cards() -> List[dict]:
+    cards = []
+    # 統計各個角色的對話紀錄數與總訊息數
+    chat_counts: Dict[str, dict] = {}
+    for cfile in CHAR_CHATS_DIR.glob("*.json"):
+        try:
+            with open(cfile, "r", encoding="utf-8") as cf:
+                cdata = json.load(cf)
+                cid = cdata.get("character_id", "")
+                if cid:
+                    if cid not in chat_counts:
+                        chat_counts[cid] = {"sessions": 0, "messages": 0}
+                    chat_counts[cid]["sessions"] += 1
+                    chat_counts[cid]["messages"] += len(cdata.get("messages", []))
+        except Exception:
+            pass
+
+    for file in CHAR_CARDS_DIR.glob("*.json"):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                cid = data.get("id")
+                stats = chat_counts.get(cid, {"sessions": 0, "messages": 0})
+                cards.append({
+                    "id": cid,
+                    "name": data.get("name", "未命名角色"),
+                    "description": data.get("description", ""),
+                    "personality": data.get("personality", ""),
+                    "scenario": data.get("scenario", ""),
+                    "first_mes": data.get("first_mes", ""),
+                    "creator_notes": data.get("creator_notes", ""),
+                    "tags": data.get("tags", []),
+                    "creator": data.get("creator", ""),
+                    "character_version": data.get("character_version", "1.0"),
+                    "avatar_url": data.get("avatar_url", ""),
+                    "lore_items_count": len(data.get("lore_items", [])),
+                    "alternate_greetings_count": len(data.get("alternate_greetings", [])),
+                    "chat_sessions_count": stats["sessions"],
+                    "total_messages_count": stats["messages"],
+                    "updated_at": data.get("updated_at")
+                })
+        except Exception as e:
+            print(f"Error reading character card {file}: {e}")
+    cards.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
+    return cards
+
+
+def get_character_card(card_id: str) -> Optional[CharacterCard]:
+    file_path = CHAR_CARDS_DIR / f"{card_id}.json"
+    if not file_path.exists():
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return CharacterCard(**data)
+    except Exception as e:
+        print(f"Error reading character card {card_id}: {e}")
+        return None
+
+
+def save_character_card(card: CharacterCard) -> CharacterCard:
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not card.id:
+        card.id = f"charcard-{uuid.uuid4().hex[:8]}"
+    if not card.created_at:
+        card.created_at = now_str
+    card.updated_at = now_str
+
+    file_path = CHAR_CARDS_DIR / f"{card.id}.json"
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(card.model_dump(), f, ensure_ascii=False, indent=2)
+    return card
+
+
+def delete_character_card(card_id: str) -> bool:
+    file_path = CHAR_CARDS_DIR / f"{card_id}.json"
+    if file_path.exists():
+        file_path.unlink()
+        # 同步清理該角色的所有對話檔案
+        for cfile in CHAR_CHATS_DIR.glob("*.json"):
+            try:
+                with open(cfile, "r", encoding="utf-8") as cf:
+                    cdata = json.load(cf)
+                if cdata.get("character_id") == card_id:
+                    cfile.unlink()
+            except Exception:
+                pass
+        return True
+    return False
+
+
+def extract_chara_from_png_bytes(png_bytes: bytes) -> Optional[dict]:
+    """
+    從 SillyTavern V2/V3 的 PNG 角色卡圖片二進位資料中提取內嵌之 Base64 JSON 角色設定 (tEXt / zTXt / iTXt chunk: 'chara' 或 'ccv3')
+    """
+    if len(png_bytes) < 8 or png_bytes[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+
+    offset = 8
+    found_json_dict = None
+
+    while offset + 8 <= len(png_bytes):
+        length = struct.unpack(">I", png_bytes[offset:offset + 4])[0]
+        chunk_type = png_bytes[offset + 4:offset + 8].decode("latin1", errors="ignore")
+        chunk_data = png_bytes[offset + 8:offset + 8 + length]
+        offset += 12 + length
+
+        if chunk_type in ("tEXt", "zTXt", "iTXt"):
+            try:
+                null_idx = chunk_data.find(b"\x00")
+                if null_idx != -1:
+                    keyword = chunk_data[:null_idx].decode("latin1", errors="ignore").strip().lower()
+                    if keyword in ("chara", "ccv3"):
+                        raw_payload = chunk_data[null_idx + 1:]
+                        if chunk_type == "zTXt" and len(raw_payload) > 1:
+                            # 第一個 byte 為壓縮方法 (0 = zlib)
+                            raw_payload = zlib.decompress(raw_payload[1:])
+                        elif chunk_type == "iTXt":
+                            # iTXt: comp_flag(1B) + comp_method(1B) + lang\0 + trans_key\0 + text
+                            parts = raw_payload[2:].split(b"\x00", 2)
+                            if len(parts) == 3:
+                                raw_payload = parts[2]
+                        b64_str = raw_payload.decode("utf-8", errors="ignore").strip()
+                        decoded_bytes = base64.b64decode(b64_str)
+                        parsed = json.loads(decoded_bytes.decode("utf-8"))
+                        if isinstance(parsed, dict):
+                            found_json_dict = parsed
+                            if keyword == "ccv3":
+                                break
+            except Exception as e:
+                print(f"Error decoding PNG chunk {chunk_type}: {e}")
+
+        if chunk_type == "IEND":
+            break
+
+    return found_json_dict
+
+
+def parse_sillytavern_card_dict(raw_data: dict, avatar_url: str = "") -> CharacterCard:
+    """
+    將 SillyTavern V1 / V2 / V3 角色卡 JSON 結構解析並轉換為本系統之 CharacterCard 模型（含 character_book -> lore_items）
+    """
+    # 判斷是否為 V2 / V3 包裹在 data 欄位中
+    data_obj = raw_data.get("data") if isinstance(raw_data.get("data"), dict) else raw_data
+
+    def pick_str(key: str, default: str = "") -> str:
+        val = data_obj.get(key)
+        if val is None and data_obj is not raw_data:
+            val = raw_data.get(key)
+        return str(val).strip() if val is not None else default
+
+    def pick_list(key: str) -> list:
+        val = data_obj.get(key)
+        if val is None and data_obj is not raw_data:
+            val = raw_data.get(key)
+        if isinstance(val, list):
+            return [str(x).strip() for x in val if str(x).strip()]
+        if isinstance(val, str) and val.strip():
+            return [x.strip() for x in val.split(",") if x.strip()]
+        return []
+
+    # 解析 character_book 為 lore_items
+    lore_items: List[LoreItem] = []
+    char_book = data_obj.get("character_book") or raw_data.get("character_book")
+    if isinstance(char_book, dict):
+        entries = char_book.get("entries")
+        entry_list = []
+        if isinstance(entries, list):
+            entry_list = entries
+        elif isinstance(entries, dict):
+            entry_list = list(entries.values())
+
+        for idx, ent in enumerate(entry_list):
+            if not isinstance(ent, dict):
+                continue
+            content = str(ent.get("content") or "").strip()
+            if not content:
+                continue
+            keys = ent.get("keys") or ent.get("key") or []
+            if isinstance(keys, str):
+                keys = [k.strip() for k in keys.split(",") if k.strip()]
+            elif isinstance(keys, list):
+                keys = [str(k).strip() for k in keys if str(k).strip()]
+            else:
+                keys = []
+
+            title = str(ent.get("comment") or ent.get("name") or (keys[0] if keys else f"設定詞條 {idx + 1}")).strip()
+            is_const = bool(ent.get("constant", False))
+            is_enab = bool(ent.get("enabled", True))
+            lore_items.append(
+                LoreItem(
+                    id=f"lore-{uuid.uuid4().hex[:8]}",
+                    title=title or f"詞條 {idx + 1}",
+                    category="世界書設定",
+                    keywords=keys,
+                    content=content,
+                    is_constant=is_const,
+                    is_enabled=is_enab
+                )
+            )
+
+    # 若本身已是我們系統匯出的格式，也直接支援 lore_items
+    raw_lore = data_obj.get("lore_items") or raw_data.get("lore_items")
+    if not lore_items and isinstance(raw_lore, list):
+        for item in raw_lore:
+            if isinstance(item, dict) and item.get("content"):
+                lore_items.append(LoreItem(**item))
+
+    card = CharacterCard(
+        id=f"charcard-{uuid.uuid4().hex[:8]}",
+        name=pick_str("name", "未命名角色"),
+        description=pick_str("description", ""),
+        personality=pick_str("personality", ""),
+        scenario=pick_str("scenario", ""),
+        first_mes=pick_str("first_mes", ""),
+        alternate_greetings=pick_list("alternate_greetings"),
+        mes_example=pick_str("mes_example", ""),
+        creator_notes=pick_str("creator_notes", "") or pick_str("creatorcomment", ""),
+        system_prompt=pick_str("system_prompt", ""),
+        post_history_instructions=pick_str("post_history_instructions", ""),
+        tags=pick_list("tags"),
+        creator=pick_str("creator", ""),
+        character_version=pick_str("character_version", "1.0"),
+        avatar_url=avatar_url or pick_str("avatar_url", ""),
+        lore_items=lore_items,
+        user_persona_name=pick_str("user_persona_name", "你"),
+        user_persona_desc=pick_str("user_persona_desc", "")
+    )
+    return save_character_card(card)
+
+
+def export_sillytavern_v2_dict(card: CharacterCard) -> dict:
+    """
+    將本系統之 CharacterCard 匯出為完全相容 SillyTavern Character Card V2 (chara_card_v2) 標準之 JSON 結構
+    """
+    st_entries = []
+    for idx, item in enumerate(card.lore_items or []):
+        st_entries.append({
+            "id": idx,
+            "keys": item.keywords or [item.title],
+            "secondary_keys": [],
+            "comment": item.title,
+            "content": item.content,
+            "constant": item.is_constant,
+            "selective": False,
+            "insertion_order": 100,
+            "enabled": item.is_enabled,
+            "position": "before_char",
+            "extensions": {}
+        })
+
+    data_block = {
+        "name": card.name,
+        "description": card.description,
+        "personality": card.personality,
+        "scenario": card.scenario,
+        "first_mes": card.first_mes,
+        "mes_example": card.mes_example,
+        "creator_notes": card.creator_notes,
+        "system_prompt": card.system_prompt,
+        "post_history_instructions": card.post_history_instructions,
+        "alternate_greetings": card.alternate_greetings or [],
+        "tags": card.tags or [],
+        "creator": card.creator or "KongGuLi Studio",
+        "character_version": card.character_version or "1.0",
+        "character_book": {
+            "name": f"{card.name} 的世界書",
+            "entries": st_entries
+        },
+        "extensions": {
+            "kongguli": {
+                "avatar_url": card.avatar_url or "",
+                "user_persona_name": card.user_persona_name or "你",
+                "user_persona_desc": card.user_persona_desc or ""
+            }
+        }
+    }
+
+    return {
+        "spec": "chara_card_v2",
+        "spec_version": "2.0",
+        "name": card.name,
+        "description": card.description,
+        "personality": card.personality,
+        "scenario": card.scenario,
+        "first_mes": card.first_mes,
+        "mes_example": card.mes_example,
+        "creatorcomment": card.creator_notes,
+        "tags": card.tags or [],
+        "data": data_block
+    }
+
+
+def create_sample_character_card() -> CharacterCard:
+    """
+    建立一張高品質 SillyTavern V2 標準示範角色卡：《星見 汐音 (Hoshimi Shion) - 午夜舊書店的守秘魔女》
+    """
+    sample = CharacterCard(
+        id=f"charcard-{uuid.uuid4().hex[:8]}",
+        name="星見 汐音",
+        description=(
+            "{{char}}（星見 汐音，Hoshimi Shion）是隱匿於現代都市巷弄深處「月影古書堂」的年輕店主，真實身份為執掌『記憶與星象』的見習守秘魔女。\n"
+            "【外貌特徵】：擁有如夜空般傾瀉而下的銀白色長髮，髮尾微帶星空藍漸層；琥珀色的眼眸在暗處會泛起微光。平時喜歡穿著復古深藍天鵝絨長裙，外搭寬鬆的針織披肩，指尖常沾有淡淡的舊書頁與玫瑰伯爵茶香氣。\n"
+            "【背景故事】：她收集人們遺落或不敢面對的記憶碎片，並將其封存於古書之中。表面上有些慵懶、愛開無傷大雅的玩笑，實際上觀察力極其敏銳，對誤入古書堂的{{user}}抱有強烈的好奇與溫柔的包容。"
+        ),
+        personality="慵懶優雅、神秘毒舌卻內心溫柔、觀察細膩、偶爾會展現小惡魔般的捉弄感",
+        scenario="雨夜的都市巷弄，{{user}}為了躲避突如其來的傾盆大雨，推開了一間地圖上並不存在的『月影古書堂』木門。店內點著溫暖的黃銅煤油燈，{{char}}正坐在高腳梯上擦拭一本散發微光的羊皮古籍。",
+        first_mes=(
+            "*清脆的黃銅門鈴在寂靜的雨夜裡響起，帶著潮濕水氣的夜風吹動了書架間懸掛的星象風鈴。*\n\n"
+            "*坐在胡桃木高腳梯上的銀髮少女緩緩垂下眼簾，琥珀色的眸子透過搖曳的燈火落在{{user}}身上。她合上手中泛著微光的古籍，裙擺隨著她輕盈躍下梯子的動作在空中劃出一道優雅的弧線。*\n\n"
+            "「哎呀，今夜的雨，竟然把一位不在預言名冊上的客人吹進來了呢。」\n\n"
+            "*{{char}}微微偏過頭，唇角勾起一抹似笑非笑的弧度，將一杯剛泡好、冒著熱氣的玫瑰伯爵茶推到吧台邊緣。*\n\n"
+            "「歡迎來到『月影古書堂』，渾身濕透的迷途者。在把我的波斯地毯弄濕之前……要不要先喝口熱茶，告訴我你是為了尋找某本書，還是為了尋找某段被遺忘的記憶而來的？」"
+        ),
+        alternate_greetings=[
+            "*午後的陽光穿過彩繪玻璃窗，在堆滿古籍的地板上投下斑斕的光影。{{char}}正趴在吧台軟墊上打著小盹，銀白色的長髮鋪散在翻開的星象圖上。聽到{{user}}靠近的腳步聲，她迷迷糊糊地揉了揉琥珀色的眼睛。*\n\n「唔……還沒到打烊時間嗎？啊，是{{user}}呀。既然來了，幫我把最頂層那本藍皮魔導書拿下來好不好？作為報酬，今天允許你問我一個關於未來的秘密喔。」",
+            "*午夜十二點的鐘聲剛過，古書堂內所有的蠟燭同時變成了幽邃的星藍色。{{char}}站在星盤中央，指尖纏繞著一縷銀色光絲，神情比平時認真了許多。*\n\n「{{user}}，你來得正好。剛才星盤捕捉到了一段與你過去有關的記憶波動……過來這邊，把手放在水晶上，別害怕，我會陪著你一起看清它的模樣。」"
+        ],
+        mes_example=(
+            "<START>\n"
+            "{{user}}: 這裡的書看起來都很古老，真的可以隨便翻閱嗎？\n"
+            "{{char}}: *{{char}}修長的食指輕輕抵在唇邊，琥珀色的眼眸眨了眨，發出一聲輕柔的笑聲。*\n"
+            "「左邊書架上的普通古籍請隨意；不過右邊那些鎖著銀鍊的書冊嘛……如果你不怕被吸進別人的夢境裡，我也不會阻止你就是了。」\n"
+            "<START>\n"
+            "{{user}}: 謝謝妳的熱茶，味道很香。\n"
+            "{{char}}: *聽到讚美，她滿意地瞇起眼睛，雙手托著下巴坐在吧台對面靜靜端詳著{{user}}。*\n"
+            "「算你有品味，這可是用清晨第一滴露水與夜綻玫瑰烘焙的茶葉。看在你這麼誠實的份上，今晚的茶資就用你的一個故事來抵銷吧？」"
+        ),
+        creator_notes="示範 SillyTavern V2 相容角色卡。內含 3 組開場白、角色專屬世界書（古書堂法則、記憶封存術、使魔黑貓）以及完整的角色演繹提示。",
+        system_prompt="請全程以『星見 汐音 ({{char}})』的第一人稱或第三人稱小說敘事視角與 {{user}} 進行深度角色扮演對話。動作與神態描寫請包裹在 *星號* 中，說話台詞請使用「引號」。維持她神秘、優雅、略帶捉弄卻溫柔的魔女店主性格。",
+        post_history_instructions="請緊密回應 {{user}} 的最新話語與動作，每次回覆自然推進兩人的互動氛圍，切勿代替 {{user}} 說話或做決定。",
+        tags=["奇幻", "魔女", "日常療癒", "微懸疑", "SillyTavern相容"],
+        creator="KongGuLi Studio",
+        character_version="1.2",
+        avatar_url="",
+        lore_items=[
+            LoreItem(
+                id="lore-shion-1",
+                title="月影古書堂的空間法則",
+                category="場景法則",
+                keywords=["古書堂", "書店", "門口", "離開", "地址"],
+                content="月影古書堂位於現實與星界夾縫的半位面，只有心中懷有「未解執念」或「遺失記憶」的人才能在雨夜看見它的大門。",
+                is_constant=True,
+                is_enabled=True
+            ),
+            LoreItem(
+                id="lore-shion-2",
+                title="記憶封存之書 (Soul Grimoire)",
+                category="關鍵設定",
+                keywords=["古籍", "羊皮書", "記憶", "封存", "秘密", "過去"],
+                content="汐音能將人們痛苦或珍貴的記憶抽離並化為書頁文字。若有人想取回記憶，必須以另一段真實的情感體驗作為等價交換。",
+                is_constant=False,
+                is_enabled=True
+            ),
+            LoreItem(
+                id="lore-shion-3",
+                title="星象使魔「諾克斯 (Nox)」",
+                category="使魔夥伴",
+                keywords=["貓", "黑貓", "使魔", "諾克斯", "寵物"],
+                content="平時趴在書架頂端睡覺的雙尾黑貓，瞳孔是星空色。能聽懂人話，喜歡吃小魚乾，偶爾會叼來關鍵的書籤。",
+                is_constant=False,
+                is_enabled=True
+            )
+        ],
+        user_persona_name="你",
+        user_persona_desc="偶然在雨夜推開月影古書堂大門的訪客，似乎在尋找某段重要的往事。"
+    )
+    return save_character_card(sample)
+
+
+# ==================== 4. 角色聊天紀錄 (ChatSession) CRUD ====================
+
+def list_chat_sessions(character_id: Optional[str] = None) -> List[dict]:
+    sessions = []
+    for file in CHAR_CHATS_DIR.glob("*.json"):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if character_id and data.get("character_id") != character_id:
+                    continue
+                msgs = data.get("messages", [])
+                last_msg = msgs[-1].get("content", "")[:80] if msgs else ""
+                sessions.append({
+                    "id": data.get("id"),
+                    "character_id": data.get("character_id"),
+                    "title": data.get("title", "對話紀錄"),
+                    "user_name": data.get("user_name", "你"),
+                    "messages_count": len(msgs),
+                    "last_message_preview": last_msg,
+                    "has_memory_summary": bool(data.get("memory_summary", "").strip()),
+                    "updated_at": data.get("updated_at")
+                })
+        except Exception as e:
+            print(f"Error reading chat session {file}: {e}")
+    sessions.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
+    return sessions
+
+
+def get_chat_session(session_id: str) -> Optional[ChatSession]:
+    file_path = CHAR_CHATS_DIR / f"{session_id}.json"
+    if not file_path.exists():
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return ChatSession(**data)
+    except Exception as e:
+        print(f"Error reading chat session {session_id}: {e}")
+        return None
+
+
+def save_chat_session(session: ChatSession) -> ChatSession:
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not session.id:
+        session.id = f"chat-{uuid.uuid4().hex[:8]}"
+    if not session.created_at:
+        session.created_at = now_str
+    session.updated_at = now_str
+
+    file_path = CHAR_CHATS_DIR / f"{session.id}.json"
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(session.model_dump(), f, ensure_ascii=False, indent=2)
+    return session
+
+
+def delete_chat_session(session_id: str) -> bool:
+    file_path = CHAR_CHATS_DIR / f"{session_id}.json"
+    if file_path.exists():
+        file_path.unlink()
+        return True
+    return False
+
+
+def create_new_chat_session(card: CharacterCard, user_name: str = "", greeting_index: int = 0) -> ChatSession:
+    uname = (user_name or card.user_persona_name or "你").strip()
+    upersona = (card.user_persona_desc or "").strip()
+
+    # 組合所有開場白候選 (主開場白 + 備選開場白)
+    all_greetings = []
+    if card.first_mes and card.first_mes.strip():
+        all_greetings.append(card.first_mes.strip())
+    for alt in (card.alternate_greetings or []):
+        if alt and alt.strip():
+            all_greetings.append(alt.strip())
+
+    messages: List[ChatMessage] = []
+    if all_greetings:
+        idx = max(0, min(greeting_index, len(all_greetings) - 1))
+        chosen_text = all_greetings[idx]
+        messages.append(
+            ChatMessage(
+                id=f"msg-{uuid.uuid4().hex[:8]}",
+                role="assistant",
+                content=chosen_text,
+                swipes=all_greetings,
+                swipe_id=idx,
+                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
+        )
+
+    session = ChatSession(
+        id=f"chat-{uuid.uuid4().hex[:8]}",
+        character_id=card.id or "",
+        title=f"與 {card.name} 的對話 ({datetime.now().strftime('%m/%d %H:%M')})",
+        user_name=uname,
+        user_persona=upersona,
+        memory_summary="",
+        messages=messages
+    )
+    return save_chat_session(session)

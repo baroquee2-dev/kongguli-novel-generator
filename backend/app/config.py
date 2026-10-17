@@ -7,12 +7,16 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 NOVELS_DIR = DATA_DIR / "novels"
 GAMES_DIR = DATA_DIR / "games"
+CHAR_CARDS_DIR = DATA_DIR / "character_cards"
+CHAR_CHATS_DIR = DATA_DIR / "character_chats"
 UPLOADS_DIR = DATA_DIR / "uploads"
 
 # 確保目錄存在
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 NOVELS_DIR.mkdir(parents=True, exist_ok=True)
 GAMES_DIR.mkdir(parents=True, exist_ok=True)
+CHAR_CARDS_DIR.mkdir(parents=True, exist_ok=True)
+CHAR_CHATS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_SETTINGS = AISettings(

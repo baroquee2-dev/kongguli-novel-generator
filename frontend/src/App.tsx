@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Novel, NovelListItem, GameProject, GameListItem, AISettings, SystemMode } from './types';
+import type {
+  Novel,
+  NovelListItem,
+  GameProject,
+  GameListItem,
+  CharacterCard,
+  CharacterCardListItem,
+  AISettings,
+  SystemMode
+} from './types';
 import { api } from './api/client';
 import { Navbar } from './components/Navbar';
 import { SettingsModal } from './components/SettingsModal';
@@ -11,12 +20,25 @@ import { GameLevelTab } from './components/GameLevelTab';
 import { LorebookTab } from './components/LorebookTab';
 import { FrontstageView } from './components/FrontstageView';
 import { GameFrontstageView } from './components/GameFrontstageView';
-import { 
-  BookMarked, MapPin, Users, BookOpenCheck, Loader2, CheckCircle, Brain, Gamepad2
+import { CharacterStudioView } from './components/CharacterStudioView';
+import { CharacterChatFrontstageView } from './components/CharacterChatFrontstageView';
+import {
+  BookMarked,
+  MapPin,
+  Users,
+  BookOpenCheck,
+  Loader2,
+  CheckCircle,
+  Brain,
+  Gamepad2,
+  MessageSquareHeart,
+  UserCircle2,
+  MessageCircle,
+  Terminal
 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  // 頂層系統模式切換：小說版 vs 遊戲版 (底層架構完全獨立)
+  // 頂層系統模式切換：小說版 vs 遊戲版 vs 角色聊天版
   const [systemMode, setSystemMode] = useState<SystemMode>(() => {
     try {
       return (localStorage.getItem('kongguli_system_mode') as SystemMode) || 'novel';
@@ -62,6 +84,21 @@ export const App: React.FC = () => {
   const [lastSavedGameTime, setLastSavedGameTime] = useState<string>('');
   const gameSaveTimeoutRef = useRef<any>(null);
 
+  // ==================== 3. 角色聊天版 (SillyTavern 相容角色卡) 專屬狀態 ====================
+  const [characterCards, setCharacterCards] = useState<CharacterCardListItem[]>([]);
+  const [currentCardId, setCurrentCardId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('kongguli_current_card_id') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [currentCard, setCurrentCard] = useState<CharacterCard | null>(null);
+  const [activeCharacterTab, setActiveCharacterTab] = useState<'profile' | 'greetings' | 'character_book' | 'prompts'>('profile');
+  const [savingCard, setSavingCard] = useState(false);
+  const [lastSavedCardTime, setLastSavedCardTime] = useState<string>('');
+  const cardSaveTimeoutRef = useRef<any>(null);
+
   // 前台讀者展示模式 vs 後台創作模式切換 (小說版專屬)
   const [viewMode, setViewMode] = useState<'studio' | 'frontstage'>(() => {
     try {
@@ -90,19 +127,21 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 初始化載入：同時並行載入設定、小說列表、遊戲列表
+  // 初始化載入：同時並行載入設定、小說列表、遊戲列表、角色卡列表
   useEffect(() => {
     const init = async () => {
       setLoading(true);
       try {
-        const [settingsData, novelsList, gamesList] = await Promise.all([
+        const [settingsData, novelsList, gamesList, cardsList] = await Promise.all([
           api.getSettings(),
           api.listNovels(),
           api.listGames(),
+          api.listCharacterCards()
         ]);
         setSettings(settingsData);
         setNovels(novelsList);
         setGames(gamesList);
+        setCharacterCards(cardsList);
 
         // 恢復或載入預設小說
         if (novelsList.length > 0) {
@@ -125,6 +164,17 @@ export const App: React.FC = () => {
           const fullGame = await api.getGame(targetGameId);
           setCurrentGame(fullGame);
         }
+
+        // 恢復或載入預設角色卡
+        if (cardsList.length > 0) {
+          const targetCardId = cardsList.find(c => c.id === currentCardId)?.id || cardsList[0].id;
+          setCurrentCardId(targetCardId);
+          try {
+            localStorage.setItem('kongguli_current_card_id', targetCardId);
+          } catch {}
+          const fullCard = await api.getCharacterCard(targetCardId);
+          setCurrentCard(fullCard);
+        }
       } catch (err) {
         console.error('初始化系統失敗:', err);
       } finally {
@@ -136,7 +186,7 @@ export const App: React.FC = () => {
 
   // ==================== 小說操作處理 ====================
   const handleSelectNovel = async (id: string) => {
-    if (id === currentNovelId) return;
+    if (id === currentNovelId && currentNovel) return;
     setLoading(true);
     try {
       setCurrentNovelId(id);
@@ -212,7 +262,7 @@ export const App: React.FC = () => {
 
   // ==================== 獨立遊戲版操作處理 ====================
   const handleSelectGame = async (id: string) => {
-    if (id === currentGameId) return;
+    if (id === currentGameId && currentGame) return;
     setLoading(true);
     try {
       setCurrentGameId(id);
@@ -287,6 +337,99 @@ export const App: React.FC = () => {
     }, 800);
   };
 
+  // ==================== 角色聊天版 (Character Card) 操作處理 ====================
+  const handleSelectCard = async (id: string) => {
+    if (id === currentCardId && currentCard) return;
+    try {
+      setCurrentCardId(id);
+      try {
+        localStorage.setItem('kongguli_current_card_id', id);
+      } catch {}
+      const fullCard = await api.getCharacterCard(id);
+      setCurrentCard(fullCard);
+    } catch (err) {
+      console.error('切換角色卡失敗:', err);
+    }
+  };
+
+  const handleInitSampleCard = async () => {
+    try {
+      const sample = await api.initSampleCharacterCard();
+      const list = await api.listCharacterCards();
+      setCharacterCards(list);
+      setCurrentCardId(sample.id);
+      setCurrentCard(sample);
+      setActiveCharacterTab('profile');
+      try {
+        localStorage.setItem('kongguli_current_card_id', sample.id);
+      } catch {}
+    } catch (err: any) {
+      alert(err.message || '載入示範角色卡失敗');
+    }
+  };
+
+  const handleDeleteCard = async (id: string) => {
+    try {
+      await api.deleteCharacterCard(id);
+      const list = await api.listCharacterCards();
+      setCharacterCards(list);
+      if (list.length > 0) {
+        handleSelectCard(list[0].id);
+      } else {
+        handleInitSampleCard();
+      }
+    } catch (err: any) {
+      alert(err.message || '刪除角色卡失敗');
+    }
+  };
+
+  const handleCardChange = (updated: CharacterCard) => {
+    setCurrentCard(updated);
+    if (cardSaveTimeoutRef.current) clearTimeout(cardSaveTimeoutRef.current);
+    cardSaveTimeoutRef.current = setTimeout(async () => {
+      setSavingCard(true);
+      try {
+        await api.saveCharacterCard(updated);
+        setLastSavedCardTime(new Date().toLocaleTimeString());
+        setCharacterCards(prev =>
+          prev.map(c =>
+            c.id === updated.id
+              ? {
+                  ...c,
+                  name: updated.name,
+                  description: updated.description,
+                  personality: updated.personality,
+                  scenario: updated.scenario,
+                  first_mes: updated.first_mes,
+                  creator_notes: updated.creator_notes,
+                  tags: updated.tags || [],
+                  creator: updated.creator,
+                  character_version: updated.character_version,
+                  avatar_url: updated.avatar_url,
+                  lore_items_count: (updated.lore_items || []).length,
+                  alternate_greetings_count: (updated.alternate_greetings || []).length
+                }
+              : c
+          )
+        );
+      } catch (err) {
+        console.error('儲存角色卡失敗:', err);
+      } finally {
+        setSavingCard(false);
+      }
+    }, 800);
+  };
+
+  const handleImportCardSuccess = async (imported: CharacterCard) => {
+    const list = await api.listCharacterCards();
+    setCharacterCards(list);
+    setCurrentCardId(imported.id);
+    setCurrentCard(imported);
+    try {
+      localStorage.setItem('kongguli_current_card_id', imported.id);
+    } catch {}
+  };
+
   // ==================== 建立新專案 Modal ====================
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createModalType, setCreateModalType] = useState<SystemMode>('novel');
@@ -297,7 +440,11 @@ export const App: React.FC = () => {
 
   const handleOpenCreateModal = (type: SystemMode) => {
     setCreateModalType(type);
-    if (type === 'game') {
+    if (type === 'character') {
+      setNewTitle(`新角色 ${characterCards.length + 1}`);
+      setNewGenre('溫柔神秘、觀察敏銳');
+      setNewTone('奇幻, 日常');
+    } else if (type === 'game') {
       setNewTitle(`我的新遊戲專案 ${games.length + 1}`);
       setNewGenre('文字冒險RPG');
       setNewTone('沉浸互動');
@@ -312,16 +459,37 @@ export const App: React.FC = () => {
   const handleConfirmCreateProject = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!newTitle.trim()) {
-      alert(createModalType === 'game' ? '請填寫遊戲名稱' : '請填寫小說名稱');
+      alert('請填寫名稱');
       return;
     }
 
     setCreating(true);
-    const isGame = createModalType === 'game';
-    const newId = `${isGame ? 'game' : 'novel'}-${Date.now().toString(36)}`;
-
     try {
-      if (isGame) {
+      if (createModalType === 'character') {
+        const tags = newTone
+          .split(',')
+          .map(t => t.trim())
+          .filter(Boolean);
+        const created = await api.createCharacterCard({
+          name: newTitle.trim(),
+          personality: newGenre.trim(),
+          tags,
+          description: `{{char}}（${newTitle.trim()}）的角色設定與背景描述。`,
+          scenario: `{{user}}與{{char}}相遇的場景。`,
+          first_mes: `*{{char}}看向走近的{{user}}，微笑著打招呼。*\n「你好，我是${newTitle.trim()}。」`,
+          alternate_greetings: [],
+          lore_items: []
+        });
+        const list = await api.listCharacterCards();
+        setCharacterCards(list);
+        setCurrentCardId(created.id);
+        setCurrentCard(created);
+        setActiveCharacterTab('profile');
+        try {
+          localStorage.setItem('kongguli_current_card_id', created.id);
+        } catch {}
+      } else if (createModalType === 'game') {
+        const newId = `game-${Date.now().toString(36)}`;
         const created = await api.createGame({
           id: newId,
           title: newTitle.trim(),
@@ -352,6 +520,7 @@ export const App: React.FC = () => {
           localStorage.setItem('kongguli_current_game_id', created.id);
         } catch {}
       } else {
+        const newId = `novel-${Date.now().toString(36)}`;
         const created = await api.createNovel({
           id: newId,
           title: newTitle.trim(),
@@ -384,7 +553,7 @@ export const App: React.FC = () => {
       }
       setIsCreateModalOpen(false);
     } catch (err: any) {
-      alert(err.message || '建立專案失敗，請檢查後端是否正常運作');
+      alert(err.message || '建立失敗，請檢查後端是否正常運作');
     } finally {
       setCreating(false);
     }
@@ -401,7 +570,12 @@ export const App: React.FC = () => {
   };
 
   const isGameMode = systemMode === 'game';
-  const activeCurrentProject = isGameMode ? currentGame : currentNovel;
+  const isCharacterMode = systemMode === 'character';
+  const activeCurrentProject = isCharacterMode
+    ? currentCard
+    : isGameMode
+    ? currentGame
+    : currentNovel;
 
   if (loading && !activeCurrentProject) {
     return (
@@ -409,6 +583,28 @@ export const App: React.FC = () => {
         <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
         <p className="text-sm font-medium">正在啟動孔固力創作空間...</p>
       </div>
+    );
+  }
+
+  // 獨立角色聊天前台模式
+  if (systemMode === 'character_frontstage') {
+    return (
+      <>
+        <CharacterChatFrontstageView
+          cards={characterCards}
+          currentCard={currentCard}
+          onSelectCard={handleSelectCard}
+          onImportCardSuccess={handleImportCardSuccess}
+          onBackToStudio={() => handleSwitchSystemMode('character')}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          settings={settings}
+          onSave={handleSaveSettings}
+        />
+      </>
     );
   }
 
@@ -434,7 +630,7 @@ export const App: React.FC = () => {
   }
 
   // 獨立前台讀者展示模式 (小說版專屬)
-  if (viewMode === 'frontstage' && !isGameMode) {
+  if (viewMode === 'frontstage' && systemMode === 'novel') {
     return (
       <FrontstageView
         novels={novels}
@@ -463,92 +659,186 @@ export const App: React.FC = () => {
         onCreateGame={() => handleOpenCreateModal('game')}
         onInitSampleGame={handleInitSampleGame}
         onDeleteGame={handleDeleteGame}
+        characterCards={characterCards}
+        currentCardId={currentCardId}
+        onSelectCard={handleSelectCard}
+        onCreateCard={() => handleOpenCreateModal('character')}
+        onInitSampleCard={handleInitSampleCard}
+        onDeleteCard={handleDeleteCard}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onSwitchToFrontstage={() => handleToggleViewMode('frontstage')}
         settings={settings}
       />
 
-      {/* 五層結構導覽標籤列 */}
+      {/* 結構導覽標籤列 (角色版 4 層 vs 小說/遊戲版 5 層) */}
       <div className="bg-slate-900/60 border-b border-slate-800 px-6 py-2 sticky top-16 z-30 backdrop-blur-md">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <nav className="flex items-center gap-1 sm:gap-2">
-            {[
-              { 
-                id: 'overview', 
-                label: isGameMode ? '第 1 層：遊戲主體' : '第 1 層：小說主體', 
-                icon: BookMarked, 
-                color: isGameMode ? 'text-teal-400' : 'text-purple-400' 
-              },
-              { 
-                id: 'locations', 
-                label: isGameMode ? '第 2 層：世界場景' : '第 2 層：世界地點', 
-                icon: MapPin, 
-                color: 'text-emerald-400' 
-              },
-              { 
-                id: 'characters', 
-                label: isGameMode ? '第 3 層：NPC角色' : '第 3 層：角色陣容', 
-                icon: Users, 
-                color: 'text-blue-400' 
-              },
-              { 
-                id: 'lorebook', 
-                label: `第 4 層：記憶伏筆庫${activeCurrentProject?.lore_items && activeCurrentProject.lore_items.length > 0 ? ` (${activeCurrentProject.lore_items.length})` : ''}`, 
-                icon: Brain, 
-                color: 'text-cyan-400' 
-              },
-              { 
-                id: 'chapters', 
-                label: isGameMode ? '第 5 層：啟始劇情' : '第 5 層：章節創作', 
-                icon: BookOpenCheck, 
-                color: isGameMode ? 'text-teal-400' : 'text-pink-400' 
-              },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = isGameMode 
-                ? activeGameTab === tab.id 
-                : activeNovelTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    if (isGameMode) {
-                      setActiveGameTab(tab.id as any);
-                    } else {
-                      setActiveNovelTab(tab.id as any);
-                    }
-                  }}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
-                    isActive
-                      ? 'bg-slate-800 text-white shadow-sm border border-slate-700'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${tab.color}`} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          {isCharacterMode ? (
+            <nav className="flex items-center gap-1 sm:gap-2">
+              {[
+                {
+                  id: 'profile',
+                  label: '第 1 層：角色定義與立繪',
+                  icon: UserCircle2,
+                  color: 'text-rose-400'
+                },
+                {
+                  id: 'greetings',
+                  label: `第 2 層：開場白與對話範例${
+                    currentCard?.alternate_greetings?.length
+                      ? ` (${1 + currentCard.alternate_greetings.length})`
+                      : ''
+                  }`,
+                  icon: MessageCircle,
+                  color: 'text-pink-400'
+                },
+                {
+                  id: 'character_book',
+                  label: `第 3 層：專屬世界書${
+                    currentCard?.lore_items?.length
+                      ? ` (${currentCard.lore_items.length})`
+                      : ''
+                  }`,
+                  icon: Brain,
+                  color: 'text-cyan-400'
+                },
+                {
+                  id: 'prompts',
+                  label: '第 4 層：系統提示詞與玩家人設',
+                  icon: Terminal,
+                  color: 'text-purple-400'
+                }
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeCharacterTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveCharacterTab(tab.id as any)}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
+                      isActive
+                        ? 'bg-slate-800 text-white shadow-sm border border-slate-700'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${tab.color}`} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          ) : (
+            <nav className="flex items-center gap-1 sm:gap-2">
+              {[
+                {
+                  id: 'overview',
+                  label: isGameMode ? '第 1 層：遊戲主體' : '第 1 層：小說主體',
+                  icon: BookMarked,
+                  color: isGameMode ? 'text-teal-400' : 'text-purple-400'
+                },
+                {
+                  id: 'locations',
+                  label: isGameMode ? '第 2 層：世界場景' : '第 2 層：世界地點',
+                  icon: MapPin,
+                  color: 'text-emerald-400'
+                },
+                {
+                  id: 'characters',
+                  label: isGameMode ? '第 3 層：NPC角色' : '第 3 層：角色陣容',
+                  icon: Users,
+                  color: 'text-blue-400'
+                },
+                {
+                  id: 'lorebook',
+                  label: `第 4 層：記憶伏筆庫${
+                    (isGameMode ? currentGame : currentNovel)?.lore_items?.length
+                      ? ` (${(isGameMode ? currentGame : currentNovel)!.lore_items!.length})`
+                      : ''
+                  }`,
+                  icon: Brain,
+                  color: 'text-cyan-400'
+                },
+                {
+                  id: 'chapters',
+                  label: isGameMode ? '第 5 層：啟始劇情' : '第 5 層：章節創作',
+                  icon: BookOpenCheck,
+                  color: isGameMode ? 'text-teal-400' : 'text-pink-400'
+                }
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = isGameMode
+                  ? activeGameTab === tab.id
+                  : activeNovelTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      if (isGameMode) {
+                        setActiveGameTab(tab.id as any);
+                      } else {
+                        setActiveNovelTab(tab.id as any);
+                      }
+                    }}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
+                      isActive
+                        ? 'bg-slate-800 text-white shadow-sm border border-slate-700'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${tab.color}`} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
 
           {/* 自動存檔狀態指示 */}
           <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
-            {(isGameMode ? savingGame : savingNovel) ? (
+            {(isCharacterMode ? savingCard : isGameMode ? savingGame : savingNovel) ? (
               <span className="flex items-center gap-1 text-amber-400">
                 <Loader2 className="w-3 h-3 animate-spin" /> 儲存中...
               </span>
-            ) : (isGameMode ? lastSavedGameTime : lastSavedNovelTime) ? (
+            ) : (
+                isCharacterMode
+                  ? lastSavedCardTime
+                  : isGameMode
+                  ? lastSavedGameTime
+                  : lastSavedNovelTime
+              ) ? (
               <span className="flex items-center gap-1 text-emerald-400/80">
-                <CheckCircle className="w-3 h-3" /> 已存於 {isGameMode ? lastSavedGameTime : lastSavedNovelTime}
+                <CheckCircle className="w-3 h-3" /> 已存於{' '}
+                {isCharacterMode
+                  ? lastSavedCardTime
+                  : isGameMode
+                  ? lastSavedGameTime
+                  : lastSavedNovelTime}
               </span>
             ) : null}
           </div>
         </div>
       </div>
 
-      {/* 主工作區 (小說版 vs 遊戲版完全對應與隔離) */}
+      {/* 主工作區 */}
       <main className="flex-1 p-6">
-        {isGameMode ? (
+        {isCharacterMode ? (
+          currentCard ? (
+            <CharacterStudioView
+              card={currentCard}
+              onChange={handleCardChange}
+              onImportSuccess={handleImportCardSuccess}
+              onStartChat={async (cardId) => {
+                await handleSelectCard(cardId);
+                handleSwitchSystemMode('character_frontstage');
+              }}
+              activeSubTab={activeCharacterTab}
+            />
+          ) : (
+            <div className="text-center py-20 text-slate-500">
+              請選擇、建立或匯入一張角色卡開始設定。
+            </div>
+          )
+        ) : isGameMode ? (
           currentGame ? (
             <>
               {activeGameTab === 'overview' && (
@@ -564,10 +854,7 @@ export const App: React.FC = () => {
                 <LorebookTab novel={currentGame} onChange={handleGameChange} />
               )}
               {activeGameTab === 'chapters' && (
-                <GameLevelTab 
-                  game={currentGame} 
-                  onChange={handleGameChange} 
-                />
+                <GameLevelTab game={currentGame} onChange={handleGameChange} />
               )}
             </>
           ) : (
@@ -575,39 +862,37 @@ export const App: React.FC = () => {
               請選擇或建立一部遊戲專案開始創作。
             </div>
           )
+        ) : currentNovel ? (
+          <>
+            {activeNovelTab === 'overview' && (
+              <StoryOverviewTab novel={currentNovel} onChange={handleNovelChange} isGame={false} />
+            )}
+            {activeNovelTab === 'locations' && (
+              <LocationsTab novel={currentNovel} onChange={handleNovelChange} />
+            )}
+            {activeNovelTab === 'characters' && (
+              <CharactersTab novel={currentNovel} onChange={handleNovelChange} />
+            )}
+            {activeNovelTab === 'lorebook' && (
+              <LorebookTab novel={currentNovel} onChange={handleNovelChange} />
+            )}
+            {activeNovelTab === 'chapters' && (
+              <ChaptersTab
+                novel={currentNovel}
+                onChange={handleNovelChange}
+                settings={settings}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+              />
+            )}
+          </>
         ) : (
-          currentNovel ? (
-            <>
-              {activeNovelTab === 'overview' && (
-                <StoryOverviewTab novel={currentNovel} onChange={handleNovelChange} isGame={false} />
-              )}
-              {activeNovelTab === 'locations' && (
-                <LocationsTab novel={currentNovel} onChange={handleNovelChange} />
-              )}
-              {activeNovelTab === 'characters' && (
-                <CharactersTab novel={currentNovel} onChange={handleNovelChange} />
-              )}
-              {activeNovelTab === 'lorebook' && (
-                <LorebookTab novel={currentNovel} onChange={handleNovelChange} />
-              )}
-              {activeNovelTab === 'chapters' && (
-                <ChaptersTab 
-                  novel={currentNovel} 
-                  onChange={handleNovelChange} 
-                  settings={settings}
-                  onOpenSettings={() => setIsSettingsOpen(true)}
-                />
-              )}
-            </>
-          ) : (
-            <div className="text-center py-20 text-slate-500">
-              請選擇或建立一部小說開始創作。
-            </div>
-          )
+          <div className="text-center py-20 text-slate-500">
+            請選擇或建立一部小說開始創作。
+          </div>
         )}
       </main>
 
-      {/* 建立新專案 Modal (支援建立新小說或新遊戲專案) */}
+      {/* 建立新專案/新角色卡 Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <form
@@ -616,7 +901,12 @@ export const App: React.FC = () => {
           >
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                {createModalType === 'game' ? (
+                {createModalType === 'character' ? (
+                  <>
+                    <MessageSquareHeart className="w-5 h-5 text-rose-400" />
+                    建立全新 SillyTavern 相容角色卡
+                  </>
+                ) : createModalType === 'game' ? (
                   <>
                     <Gamepad2 className="w-5 h-5 text-emerald-400" />
                     建立全新遊戲專案
@@ -640,7 +930,11 @@ export const App: React.FC = () => {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {createModalType === 'game' ? '遊戲名稱 *' : '小說書名 *'}
+                  {createModalType === 'character'
+                    ? '角色名稱 *'
+                    : createModalType === 'game'
+                    ? '遊戲名稱 *'
+                    : '小說書名 *'}
                 </label>
                 <input
                   type="text"
@@ -648,7 +942,13 @@ export const App: React.FC = () => {
                   autoFocus
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder={createModalType === 'game' ? "例如：時空迴廊、命運之鑰、深淵探索者..." : "例如：星穹之約、深淵巡航錄..."}
+                  placeholder={
+                    createModalType === 'character'
+                      ? '例如：星見 汐音、白銀 莉莉絲...'
+                      : createModalType === 'game'
+                      ? '例如：時空迴廊、命運之鑰...'
+                      : '例如：星穹之約、深淵巡航錄...'
+                  }
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-purple-500"
                 />
               </div>
@@ -656,25 +956,37 @@ export const App: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    題材類型
+                    {createModalType === 'character' ? '性格特質摘要' : '題材類型'}
                   </label>
                   <input
                     type="text"
                     value={newGenre}
                     onChange={(e) => setNewGenre(e.target.value)}
-                    placeholder={createModalType === 'game' ? "例如：文字冒險RPG、視覺小說" : "例如：奇幻冒險、懸疑科幻"}
+                    placeholder={
+                      createModalType === 'character'
+                        ? '例如：外冷內熱、優雅慵懶'
+                        : createModalType === 'game'
+                        ? '例如：文字冒險RPG'
+                        : '例如：奇幻冒險'
+                    }
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-purple-500"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    風格基調
+                    {createModalType === 'character' ? '分類標籤 (逗號分隔)' : '風格基調'}
                   </label>
                   <input
                     type="text"
                     value={newTone}
                     onChange={(e) => setNewTone(e.target.value)}
-                    placeholder={createModalType === 'game' ? "例如：沉浸探索、因果抉擇" : "例如：熱血激昂、暗黑冷酷"}
+                    placeholder={
+                      createModalType === 'character'
+                        ? '例如：奇幻, 魔女, 日常'
+                        : createModalType === 'game'
+                        ? '例如：沉浸探索'
+                        : '例如：熱血激昂'
+                    }
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-purple-500"
                   />
                 </div>
@@ -693,7 +1005,9 @@ export const App: React.FC = () => {
                 type="submit"
                 disabled={creating}
                 className={`flex items-center gap-1.5 px-5 py-2 text-xs font-medium text-white rounded-xl shadow-lg transition disabled:opacity-50 ${
-                  createModalType === 'game'
+                  createModalType === 'character'
+                    ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/20'
+                    : createModalType === 'game'
                     ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
                     : 'bg-purple-600 hover:bg-purple-500 shadow-purple-600/20'
                 }`}
