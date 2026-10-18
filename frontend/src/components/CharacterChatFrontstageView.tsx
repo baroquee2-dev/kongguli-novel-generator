@@ -625,23 +625,8 @@ export const CharacterChatFrontstageView: React.FC<Props> = ({
 
   return (
     <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden relative">
-      {/* 沉浸式立繪背景層 (自動適配瀏覽器邊框 bg-contain) */}
-      {currentCard.avatar_url && (
-        <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden flex items-center justify-center">
-          <div
-            className="w-full h-full bg-center bg-no-repeat transition-all duration-1000"
-            style={{
-              backgroundImage: `url("${currentCard.avatar_url}")`,
-              backgroundSize: 'contain',
-              opacity: 0.22
-            }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/75 via-slate-950/45 to-slate-950/90" />
-        </div>
-      )}
-
       {/* 頂部固定導覽列 */}
-      <header className="h-15 border-b border-slate-800/80 bg-slate-900/85 backdrop-blur-md px-4 sm:px-6 py-2.5 flex items-center justify-between shrink-0 z-30">
+      <header className="h-15 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-4 sm:px-6 py-2.5 flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSubView('hall')}
@@ -651,22 +636,11 @@ export const CharacterChatFrontstageView: React.FC<Props> = ({
             <span>角色大廳</span>
           </button>
 
-          {/* 當前聊天角色頭像與資訊 */}
+          {/* 當前聊天角色標題與狀態 */}
           <div className="flex items-center gap-2.5 pl-1">
-            {currentCard.avatar_url ? (
-              <img
-                src={currentCard.avatar_url}
-                alt={currentCard.name}
-                className="w-9 h-9 rounded-full object-cover border border-rose-500/50"
-              />
-            ) : (
-              <div className="w-9 h-9 rounded-full bg-rose-600/30 border border-rose-500/40 flex items-center justify-center font-bold text-sm text-rose-200">
-                {currentCard.name[0]}
-              </div>
-            )}
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-extrabold text-white">{currentCard.name}</h2>
+                <h2 className="text-sm sm:text-base font-extrabold text-white">{currentCard.name}</h2>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 font-mono">
                   長時記憶 + RAG 已啟用
                 </span>
@@ -752,9 +726,87 @@ export const CharacterChatFrontstageView: React.FC<Props> = ({
         </div>
       </header>
 
-      {/* 主體雙欄佈局：左側對話流 + 右側固定長時記憶/RAG/人設面板 */}
+      {/* 主體三欄佈局：左側常駐角色立繪欄 + 中間對話流 + 右側固定長時記憶/RAG/人設面板 */}
       <div className="flex-1 flex min-h-0 relative z-10">
-        {/* 左側主對話區 */}
+        {/* ★ 左側常駐：高清角色立繪展示欄 (Prominent Left Character Portrait Panel) */}
+        <aside className="w-64 sm:w-72 md:w-80 xl:w-96 border-r border-slate-800/90 bg-slate-900/95 flex flex-col shrink-0 z-20 select-none">
+          {/* 上方主立繪展示區 (100% 飽滿清晰、自適應完整顯示全圖) */}
+          <div className="flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center p-3">
+            {currentCard.avatar_url ? (
+              <>
+                {/* 柔和同色系模糊氛圍襯底，避免黑邊生硬 */}
+                <img
+                  src={currentCard.avatar_url}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-110 pointer-events-none"
+                />
+                {/* 清晰完整的主角色立繪 */}
+                <img
+                  src={currentCard.avatar_url}
+                  alt={currentCard.name}
+                  className="relative z-10 w-full h-full object-contain rounded-xl drop-shadow-[0_12px_28px_rgba(0,0,0,0.85)] transition-transform duration-500 hover:scale-[1.02]"
+                />
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-center p-6 space-y-3">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-rose-600/30 to-fuchsia-600/30 border border-rose-500/40 flex items-center justify-center text-4xl font-black text-rose-200 shadow-xl">
+                  {currentCard.name[0]}
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-slate-300">{currentCard.name}</p>
+                  <p className="text-xs text-slate-500">尚未設定角色立繪圖片</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onBackToStudio}
+                  className="px-3.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-xs font-bold text-rose-300 transition"
+                >
+                  前往後台上傳角色圖
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 下方角色名牌與特徵資訊區 */}
+          <div className="p-4 border-t border-slate-800/90 bg-slate-900/95 space-y-2.5 shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-extrabold text-white truncate">
+                {currentCard.name}
+              </h3>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-950/80 text-rose-300 border border-rose-500/30 shrink-0">
+                v{currentCard.character_version || '1.0'}
+              </span>
+            </div>
+
+            {currentCard.personality && (
+              <p className="text-xs text-rose-200/90 font-medium line-clamp-2 leading-relaxed">
+                {currentCard.personality}
+              </p>
+            )}
+
+            {(currentCard.tags || []).length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-0.5">
+                {currentCard.tags.slice(0, 5).map((t) => (
+                  <span
+                    key={t}
+                    className="px-2 py-0.5 rounded-md text-[10px] bg-slate-800 text-slate-300 border border-slate-700/60"
+                  >
+                    #{t}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {currentCard.creator_notes && (
+              <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed pt-1 border-t border-slate-800/80">
+                {currentCard.creator_notes}
+              </p>
+            )}
+          </div>
+        </aside>
+
+        {/* 中間主對話區 */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* 訊息捲動容器 */}
           <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">
